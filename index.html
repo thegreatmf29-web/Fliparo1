@@ -8,24 +8,31 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="Photograph anything. Know what it's worth. List it in one tap.">
 <title>Fliparo</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23D7FF3E'/><path d='M9 22V10h6a4 4 0 010 8H9m7 0l4 4' stroke='%23000' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23C084FC'/><stop offset='1' stop-color='%236D28D9'/></linearGradient></defs><rect width='32' height='32' rx='9' fill='url(%23g)'/><path d='M11.5 25V11.5A3 3 0 0114.5 8.5h7' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/><path d='M11.5 17.5h7.5' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round'/></svg>">
 
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
    Fliparo — design system
-   One accent (lime) carries every primary action. Tier colour is the only
-   other colour that ever changes, so a screen never has two things shouting.
+   One accent (electric violet) carries every primary action. Tier colour is
+   the only other colour that ever changes, so a screen never has two things
+   shouting. Glow is structural here, not decoration: it marks what is
+   interactive and what is the current focus, and it is always the accent or
+   the tier colour — never a third hue.
    ══════════════════════════════════════════════════════════════════════════ */
 :root{
   --bg:#08090B; --bg2:#0D0F13; --card:#121419; --card2:#171A20;
   --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
   --fg:#F7F8FA; --mut:#9BA1AE; --dim:#5E6472;
-  --acc:#D7FF3E; --acc-ink:#0A0C05; --acc-dim:rgba(215,255,62,.14);
-  --grn:#3DDC84; --amb:#FFC53D; --red:#FF5A4E; --blu:#4D9BFF; --vio:#A78BFA;
-  --r-sm:12px; --r:18px; --r-lg:26px; --r-xl:34px;
+  --acc:#A855F7; --acc-hi:#C084FC; --acc-lo:#6D28D9;
+  --acc-ink:#FFFFFF; --acc-dim:rgba(168,85,247,.16);
+  --acc-grad:linear-gradient(135deg,#B168FF,#7C3AED);
+  --glow-1:rgba(168,85,247,.42); --glow-2:rgba(124,58,237,.22);
+  --grn:#3DDC84; --amb:#FFC53D; --red:#FF5A4E; --blu:#4D9BFF; --vio:#C4B5FD;
+  --r-sm:14px; --r:20px; --r-lg:28px; --r-xl:36px;
   --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
   --nav-h:calc(66px + var(--safe-b));
   --shadow:0 8px 30px rgba(0,0,0,.5);
+  --shadow-acc:0 10px 34px -6px var(--glow-1),0 0 0 1px rgba(168,85,247,.28);
   --ease:cubic-bezier(.22,1,.36,1);
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -42,11 +49,22 @@ a{color:inherit;text-decoration:none}
 img{display:block;max-width:100%}
 ::-webkit-scrollbar{width:0;height:0}
 
-/* ambient light — one soft lime bloom, fixed, so scrolling feels deep */
+/* Ambient light — two violet blooms that drift very slowly against each
+   other. Fixed, so scrolling feels like moving through the light rather than
+   dragging it along. The animation is 34s and low-amplitude on purpose: at
+   this scale motion should be felt, not watched. */
 body::before{
-  content:'';position:fixed;inset:-30% -10% auto;height:70vh;z-index:0;pointer-events:none;
-  background:radial-gradient(60% 60% at 50% 0%,rgba(215,255,62,.10),transparent 70%);
+  content:'';position:fixed;inset:-34% -12% auto;height:82vh;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(52% 58% at 24% 0%,rgba(168,85,247,.22),transparent 68%),
+    radial-gradient(46% 54% at 82% 8%,rgba(109,40,217,.20),transparent 66%);
+  animation:bloom 34s ease-in-out infinite;
 }
+@keyframes bloom{
+  0%,100%{transform:translate3d(0,0,0) scale(1)}
+  50%{transform:translate3d(-3%,2%,0) scale(1.09)}
+}
+@media (prefers-reduced-motion:reduce){body::before{animation:none}}
 
 /* ─────────────────────────── app shell ─────────────────────────── */
 #app{position:relative;height:100%;z-index:1}
@@ -109,12 +127,19 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 #appbar.always-title .ab-title{opacity:1;transform:none}
 
 /* brand lockup */
-.brandmark{display:flex;align-items:center;gap:9px;padding:4px 2px}
-.brandmark .mk{width:29px;height:29px;border-radius:9px;background:var(--acc);
-  display:grid;place-items:center;flex-shrink:0}
-.brandmark .mk svg{width:16px;height:16px;stroke:#0A0C05;fill:none;stroke-width:2.7;
+.brandmark{display:flex;align-items:center;gap:10px;padding:4px 2px}
+/* The mark is a gradient squircle with a real halo. ::after is a blurred
+   copy of the same gradient sitting behind it — a box-shadow cannot follow
+   a gradient, so this is how the glow picks up the same two hues. */
+.brandmark .mk{position:relative;width:30px;height:30px;border-radius:10px;
+  background:var(--acc-grad);display:grid;place-items:center;flex-shrink:0;isolation:isolate}
+.brandmark .mk::after{content:'';position:absolute;inset:0;border-radius:inherit;
+  background:inherit;filter:blur(9px);opacity:.6;z-index:-1}
+.brandmark .mk svg{width:17px;height:17px;stroke:#fff;fill:none;stroke-width:2.6;
   stroke-linecap:round;stroke-linejoin:round}
-.brandmark .wm{font-size:16.5px;font-weight:800;letter-spacing:-.04em}
+.brandmark .wm{font-size:17px;font-weight:800;letter-spacing:-.045em;
+  background:linear-gradient(92deg,#fff 30%,var(--acc-hi));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
 
 /* large title, sitting in the content below the bar */
 .page-head{padding:6px 0 18px}
@@ -138,7 +163,9 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .card.tight{padding:15px;border-radius:var(--r)}
 .card.glow{position:relative;overflow:hidden}
 .card.glow::after{content:'';position:absolute;inset:0;pointer-events:none;
-  background:radial-gradient(90% 70% at 50% 0%,var(--glow,rgba(215,255,62,.12)),transparent 68%)}
+  background:radial-gradient(90% 72% at 50% 0%,var(--glow,var(--glow-1)),transparent 68%)}
+/* An accent-edged card: used for the one thing on a screen that matters most. */
+.card.lit{border-color:rgba(168,85,247,.34);box-shadow:0 0 0 1px rgba(168,85,247,.10),0 14px 40px -18px var(--glow-1)}
 .row-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
 
 /* ─────────────────────────── buttons ─────────────────────────── */
@@ -147,7 +174,16 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
      transition:transform .16s var(--ease),opacity .16s,background .16s}
 .btn:active{transform:scale(.975)}
 .btn:disabled{opacity:.34;pointer-events:none}
-.btn-acc{background:var(--acc);color:var(--acc-ink);box-shadow:0 6px 22px rgba(215,255,62,.22)}
+.btn-acc{background:var(--acc-grad);color:var(--acc-ink);box-shadow:var(--shadow-acc);
+  position:relative;overflow:hidden}
+/* A slow sheen that crosses the primary button. It runs once every 5s rather
+   than continuously — a button that shimmers nonstop reads as a banner ad. */
+.btn-acc::after{content:'';position:absolute;top:0;left:-60%;width:45%;height:100%;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.26),transparent);
+  animation:sheen 5s ease-in-out infinite}
+@keyframes sheen{0%,72%{left:-60%}92%,100%{left:120%}}
+@media (prefers-reduced-motion:reduce){.btn-acc::after{animation:none;opacity:0}}
+.btn-acc:active{box-shadow:0 4px 16px -4px var(--glow-1)}
 .btn-solid{background:var(--fg);color:#0A0B0E}
 .btn-ghost{background:var(--card);border:1px solid var(--line2);color:var(--fg)}
 .btn-sm{height:44px;font-size:14.5px;border-radius:var(--r-sm);padding:0 18px;width:auto}
@@ -174,11 +210,18 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 #nav .tl{font-size:10.5px;font-weight:650;letter-spacing:-.01em}
 #nav .tab-scan{position:relative}
 #nav .tab-scan .fab{
-  width:52px;height:52px;border-radius:18px;background:var(--acc);display:grid;place-items:center;
-  box-shadow:0 6px 20px rgba(215,255,62,.3);transition:transform .2s var(--ease);margin-top:-12px
+  position:relative;width:54px;height:54px;border-radius:50%;background:var(--acc-grad);
+  display:grid;place-items:center;box-shadow:0 8px 26px -4px var(--glow-1);
+  transition:transform .2s var(--ease);margin-top:-13px;isolation:isolate
 }
+/* A halo ring that breathes. This is the primary action of the whole app, so
+   it gets the one piece of persistent motion in the interface. */
+#nav .tab-scan .fab::before{content:'';position:absolute;inset:-5px;border-radius:50%;
+  border:1.5px solid rgba(168,85,247,.42);animation:halo 2.8s ease-in-out infinite}
+@keyframes halo{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.13);opacity:0}}
+@media (prefers-reduced-motion:reduce){#nav .tab-scan .fab::before{animation:none;opacity:.5}}
 #nav .tab-scan:active .fab{transform:scale(.9)}
-#nav .tab-scan .fab svg{width:25px;height:25px;stroke:#0A0C05;stroke-width:2.1}
+#nav .tab-scan .fab svg{width:25px;height:25px;stroke:#fff;stroke-width:2.2}
 #nav .tab-scan .tl{color:var(--mut);margin-top:1px}
 
 /* ─────────────────────────── quota meter ─────────────────────────── */
@@ -187,7 +230,7 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .quota .qbar{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden}
 .quota .qfill{height:100%;border-radius:3px;background:var(--acc);transition:width .7s var(--ease)}
 .quota .qtxt{font-size:12.5px;color:var(--mut);white-space:nowrap;font-weight:600}
-.quota .qup{font-size:12.5px;font-weight:750;color:var(--acc);white-space:nowrap}
+.quota .qup{font-size:12.5px;font-weight:750;color:var(--acc-hi);white-space:nowrap}
 
 /* ─────────────────────────── media tiles ─────────────────────────── */
 /* Photo sits on a designed gradient. If the photo 404s the tile still looks
@@ -211,10 +254,10 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 /* ─────────────────────────── home ─────────────────────────── */
 .hero-scan{
   position:relative;border-radius:var(--r-xl);overflow:hidden;padding:26px 22px 22px;
-  background:linear-gradient(155deg,#1A1E12,#101218 62%);border:1px solid rgba(215,255,62,.2);
+  background:linear-gradient(155deg,#1B1030,#101218 64%);border:1px solid rgba(168,85,247,.26);
 }
 .hero-scan::before{content:'';position:absolute;inset:0;
-  background:radial-gradient(70% 90% at 82% 6%,rgba(215,255,62,.2),transparent 62%)}
+  background:radial-gradient(70% 90% at 82% 6%,rgba(168,85,247,.30),transparent 62%)}
 .hero-scan>*{position:relative}
 .hero-scan .hl{font-size:clamp(24px,6.4vw,32px);font-weight:800;letter-spacing:-.045em;line-height:1.1;margin:12px 0 8px}
 .hero-scan .hs{font-size:14.5px;color:var(--mut);line-height:1.55;margin-bottom:20px;max-width:34ch}
@@ -244,7 +287,7 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .photo-cell{position:relative;aspect-ratio:1;border-radius:var(--r);overflow:hidden;background:var(--card)}
 .photo-cell img{width:100%;height:100%;object-fit:cover}
 .photo-cell.primary::after{content:'MAIN';position:absolute;left:7px;top:7px;padding:3px 7px;
-  border-radius:6px;background:var(--acc);color:var(--acc-ink);font-size:9px;font-weight:800;letter-spacing:.07em}
+  border-radius:6px;background:var(--acc-grad);color:var(--acc-ink);font-size:9px;font-weight:800;letter-spacing:.07em}
 .photo-cell .del{position:absolute;right:6px;top:6px;width:24px;height:24px;border-radius:50%;
   background:rgba(0,0,0,.65);backdrop-filter:blur(8px);display:grid;place-items:center}
 .photo-cell .del svg{width:11px;height:11px;stroke:#fff;stroke-width:2.6;fill:none;stroke-linecap:round}
@@ -259,7 +302,7 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
   font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:8px;letter-spacing:.02em}
 .inp{width:100%;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
      padding:15px 16px;font-size:15.5px;transition:border-color .18s}
-.inp:focus{border-color:rgba(215,255,62,.5)}
+.inp:focus{border-color:rgba(168,85,247,.55);box-shadow:0 0 0 3px rgba(168,85,247,.13)}
 textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .cnt{font-size:11.5px;color:var(--dim);font-weight:600}
 .cnt.over{color:var(--red)}
@@ -274,11 +317,11 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .scan-wrap img{width:100%;height:100%;object-fit:cover;filter:saturate(.85) brightness(.72)}
 .scan-line{position:absolute;left:0;right:0;height:2px;
   background:linear-gradient(90deg,transparent,var(--acc),transparent);
-  box-shadow:0 0 22px 5px rgba(215,255,62,.5);animation:sweep 2.1s ease-in-out infinite}
+  box-shadow:0 0 26px 6px var(--glow-1);animation:sweep 2.1s ease-in-out infinite}
 @keyframes sweep{0%,100%{top:4%}50%{top:96%}}
 .scan-grid{position:absolute;inset:0;
-  background-image:linear-gradient(rgba(215,255,62,.12) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(215,255,62,.12) 1px,transparent 1px);
+  background-image:linear-gradient(rgba(168,85,247,.18) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(168,85,247,.18) 1px,transparent 1px);
   background-size:30px 30px;mask-image:radial-gradient(circle at 50% 50%,#000 35%,transparent 76%)}
 .node{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--acc);
   box-shadow:0 0 10px var(--acc);animation:blip 2.3s ease-in-out infinite}
@@ -288,54 +331,99 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .ring-wrap{position:relative;width:190px;height:190px;margin:0 auto}
 .ring-wrap svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring-bg{fill:none;stroke:rgba(255,255,255,.08);stroke-width:12}
-.ring-fg{fill:none;stroke:var(--acc);stroke-width:12;stroke-linecap:round;
-  stroke-dasharray:534.07;stroke-dashoffset:534.07;transition:stroke-dashoffset 1.5s var(--ease),stroke .5s}
+.ring-fg{fill:none;stroke:var(--acc);stroke-width:13;stroke-linecap:round;
+  stroke-dasharray:534.07;stroke-dashoffset:534.07;
+  filter:drop-shadow(0 0 9px var(--tc,var(--acc)));
+  transition:stroke-dashoffset 1.5s var(--ease),stroke .5s}
 .ring-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .ring-mid .rv{font-size:56px;font-weight:800;letter-spacing:-.06em;line-height:1;font-variant-numeric:tabular-nums}
 .ring-mid .rl{font-size:11px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--dim);margin-top:5px}
 
 /* tiers */
-.tier-chip{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border-radius:12px;
+.tier-chip{display:inline-flex;align-items:center;gap:7px;padding:9px 18px;border-radius:99px;
   font-size:13.5px;font-weight:800;letter-spacing:-.01em;
   background:var(--tc-bg,var(--card));color:var(--tc,var(--fg));border:1px solid var(--tc-br,var(--line))}
 .tier-chip svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.3;
                stroke-linecap:round;stroke-linejoin:round}
-.tier-scale{display:flex;gap:4px;margin-top:14px}
-.tier-scale .ts{flex:1;height:4px;border-radius:2px;background:rgba(255,255,255,.09)}
-.tier-scale .ts.on{background:var(--tc,var(--acc))}
+.tier-scale{display:flex;gap:5px;margin-top:15px}
+.tier-scale .ts{flex:1;height:5px;border-radius:99px;background:rgba(255,255,255,.09);
+  transition:background .5s var(--ease),box-shadow .5s var(--ease)}
+.tier-scale .ts.on{background:var(--tc,var(--acc));box-shadow:0 0 10px -1px var(--tc,var(--acc))}
 
-/* stat grid on results */
+/* Stat grid on results.
+   Each metric is a donut gauge rather than a bar. Four circles read as one
+   set at a glance; four bars of different lengths read as a list you have to
+   parse. The ring is a conic-gradient masked to an annulus — no SVG, and the
+   --p custom property animates because it is registered below. */
+@property --p{syntax:'<number>';inherits:false;initial-value:0}
 .mgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.metric{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px}
-.metric .mn{font-size:11.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--dim)}
-.metric .mv{font-size:27px;font-weight:800;letter-spacing:-.05em;margin:5px 0 9px;font-variant-numeric:tabular-nums}
-.metric .mt{height:4px;border-radius:2px;background:rgba(255,255,255,.09);overflow:hidden}
-.metric .mf{height:100%;border-radius:2px;width:0;transition:width 1s var(--ease)}
-.metric .mnote{font-size:11.5px;color:var(--mut);margin-top:9px;line-height:1.45}
+.metric{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);
+  padding:16px 12px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.gauge{position:relative;width:78px;height:78px;border-radius:50%;--p:0;
+  background:conic-gradient(var(--c,var(--acc)) calc(var(--p)*3.6deg),rgba(255,255,255,.08) 0);
+  transition:--p 1.1s var(--ease);display:grid;place-items:center;flex-shrink:0}
+.gauge::before{content:'';position:absolute;inset:7px;border-radius:50%;background:var(--card)}
+.gauge::after{content:'';position:absolute;inset:0;border-radius:50%;pointer-events:none;
+  box-shadow:0 0 16px -2px var(--c,var(--acc));opacity:.5}
+.gauge .gv{position:relative;font-size:22px;font-weight:800;letter-spacing:-.05em;
+  font-variant-numeric:tabular-nums;color:var(--c,var(--fg))}
+.metric .mn{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+  color:var(--mut);text-align:center}
 
 /* strategy picker */
 .strat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
-.strat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:13px 8px;text-align:center;
-  transition:border-color .2s,background .2s}
-.strat.on{border-color:var(--acc);background:var(--acc-dim)}
+.strat{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:13px 8px;text-align:center;
+  transition:border-color .2s,background .2s,box-shadow .2s}
+.strat.on{border-color:rgba(168,85,247,.6);background:var(--acc-dim);
+  box-shadow:0 0 0 1px rgba(168,85,247,.22),0 8px 22px -12px var(--glow-1)}
 .strat .sp{font-size:18px;font-weight:800;letter-spacing:-.04em}
 .strat .sn{font-size:11.5px;font-weight:650;margin-top:3px}
 .strat .sd{font-size:10px;color:var(--dim);margin-top:1px}
 
 /* upgrade / raise-score list */
 .raise{display:flex;align-items:center;gap:13px;padding:14px 16px;background:var(--card);
-  border:1px solid var(--line);border-radius:var(--r);margin-bottom:8px}
-.raise .rp{font-size:15px;font-weight:800;color:var(--acc);white-space:nowrap;font-variant-numeric:tabular-nums}
+  border:1px solid var(--line);border-radius:var(--r-lg);margin-bottom:8px}
+.raise .rp{font-size:14px;font-weight:800;color:var(--acc-hi);white-space:nowrap;
+  font-variant-numeric:tabular-nums;background:var(--acc-dim);border-radius:99px;padding:6px 11px}
 .raise .rt{font-size:14px;font-weight:650;flex:1}
 .raise .rs{font-size:12px;color:var(--mut);margin-top:2px;line-height:1.45}
+
+/* ── results hero ────────────────────────────────────────────────────────
+   The photo is the item. It used to be a 62px thumbnail beside the name,
+   which made the thing being valued the smallest element on a screen full of
+   numbers about it. Now it leads, at full width, with the identity over the
+   image so the two are read as one object. */
+.hero-photo{position:relative;width:100%;aspect-ratio:4/3;border-radius:var(--r-xl);
+  overflow:hidden;background:var(--card2);border:1px solid var(--line)}
+.hero-photo img{width:100%;height:100%;object-fit:cover}
+.hero-photo .veil{position:absolute;inset:0;
+  background:linear-gradient(transparent 38%,rgba(6,6,10,.9))}
+.hero-photo .cap{position:absolute;left:0;right:0;bottom:0;padding:20px 18px}
+.hero-photo .hn{font-size:21px;font-weight:800;letter-spacing:-.04em;line-height:1.18}
+.hero-photo .hb{font-size:13px;color:rgba(255,255,255,.66);margin-top:4px;font-weight:600}
+.hero-photo .htier{position:absolute;top:14px;right:14px}
+
+/* Net payout — the number a seller actually cares about. */
+.netline{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  margin-top:14px;padding:13px 16px;border-radius:99px;background:var(--card2);
+  border:1px solid var(--line)}
+.netline .nl{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.netline .nv{font-size:18px;font-weight:800;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+
+/* eBay call to action */
+.btn-ebay{background:#0064D2;color:#fff;box-shadow:0 10px 30px -8px rgba(0,100,210,.6)}
+.btn-ebay:active{box-shadow:0 5px 16px -6px rgba(0,100,210,.6)}
+
+/* Condition, as a rounded gauge rather than a number in a box. */
+.cond-card{display:flex;align-items:center;gap:16px}
 
 /* ─────────────────────────── plans ─────────────────────────── */
 .plan-card{position:relative;background:var(--card);border:1px solid var(--line);
   border-radius:var(--r-lg);padding:22px;margin-bottom:13px;transition:border-color .22s,transform .22s var(--ease)}
-.plan-card.pop{border-color:rgba(215,255,62,.42);background:linear-gradient(160deg,rgba(215,255,62,.07),var(--card) 55%)}
+.plan-card.pop{border-color:rgba(168,85,247,.45);background:linear-gradient(160deg,rgba(168,85,247,.11),var(--card) 58%);box-shadow:0 16px 44px -22px var(--glow-1)}
 .plan-card.cur{border-color:var(--line2)}
 .plan-card .ptag{position:absolute;top:-9px;left:22px;padding:4px 11px;border-radius:8px;
-  background:var(--acc);color:var(--acc-ink);font-size:10.5px;font-weight:800;letter-spacing:.07em}
+  background:var(--acc-grad);color:var(--acc-ink);font-size:10.5px;font-weight:800;letter-spacing:.07em}
 .plan-card .ptag.now{background:var(--card2);color:var(--mut);border:1px solid var(--line2)}
 .plan-card .pname{font-size:15px;font-weight:750;letter-spacing:-.02em}
 .plan-card .pblurb{font-size:13px;color:var(--mut);margin-top:2px}
@@ -383,8 +471,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .badge.auto{background:rgba(61,220,132,.16);color:var(--grn)}
 .badge.locked{background:rgba(255,255,255,.07);color:var(--dim)}
 .badge.manual{background:rgba(77,155,255,.15);color:var(--blu)}
-.badge.best{background:var(--acc);color:var(--acc-ink)}
-.badge.pro{background:rgba(215,255,62,.16);color:var(--acc)}
+.badge.best{background:var(--acc-grad);color:var(--acc-ink)}
+.badge.pro{background:var(--acc-dim);color:var(--acc-hi)}
 
 /* defects */
 .defect{display:flex;align-items:center;gap:12px;padding:13px 15px;background:var(--card);
@@ -457,9 +545,11 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   }
   #side .brand{display:flex;align-items:center;gap:10px;padding:0 10px 26px;font-size:19px;
     font-weight:800;letter-spacing:-.04em}
-  #side .brand .mk{width:31px;height:31px;border-radius:10px;background:var(--acc);display:grid;
-    place-items:center;flex-shrink:0}
-  #side .brand .mk svg{width:17px;height:17px;stroke:#0A0C05;fill:none;stroke-width:2.7;
+  #side .brand .mk{position:relative;width:33px;height:33px;border-radius:11px;
+    background:var(--acc-grad);display:grid;place-items:center;flex-shrink:0;isolation:isolate}
+  #side .brand .mk::after{content:'';position:absolute;inset:0;border-radius:inherit;
+    background:inherit;filter:blur(11px);opacity:.6;z-index:-1}
+  #side .brand .mk svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.6;
     stroke-linecap:round;stroke-linejoin:round}
   #side .snav{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:13px;
     font-size:14.5px;font-weight:600;color:var(--mut);transition:background .18s,color .18s}
@@ -528,7 +618,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <!-- ══════════════════════ desktop sidebar ══════════════════════ -->
 <aside id="side">
   <div class="brand">
-    <span class="mk"><svg viewBox="0 0 24 24"><path d="M6 19V5h6a4.5 4.5 0 010 9H6m8 0l5 5"/></svg></span>
+    <span class="mk"><svg viewBox="0 0 24 24"><path d="M8.6 20.4V8.2A3.2 3.2 0 0111.8 5H18"/><path d="M8.6 13.1h6.9"/></svg></span>
     Fliparo
   </div>
   <a class="snav on" data-snav="home" onclick="tabTo('home')">
@@ -565,7 +655,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     <div class="hero-copy">
       <div class="eyebrow">Scan an item</div>
       <div class="hl">What's it<br>actually worth?</div>
-      <div class="hs">Photograph anything. You get a real valuation from sold comps, an honest condition grade, and a listing written for every marketplace.</div>
+      <div class="hs">Photograph anything. You get a real valuation from sold comps, an honest condition grade, and a finished eBay listing.</div>
       <button class="btn btn-acc" onclick="startScan()">
         <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
         Start scanning
@@ -653,9 +743,19 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <section class="screen scrolls" id="s-results">
 
   <div class="res-cols">
-    <!-- left: the verdict -->
+    <!-- left: what it is, and what it is worth -->
     <div>
-      <div class="card glow" style="text-align:center;padding:26px 20px" id="verdictCard">
+      <div class="hero-photo rise">
+        <img id="resPhoto" alt="">
+        <div class="veil"></div>
+        <div class="htier"><span class="tier-chip" id="tierChip"></span></div>
+        <div class="cap">
+          <div class="hn" id="pName">—</div>
+          <div class="hb" id="pBrand">—</div>
+        </div>
+      </div>
+
+      <div class="card glow" style="text-align:center;padding:24px 20px;margin-top:12px" id="verdictCard">
         <div class="ring-wrap">
           <svg viewBox="0 0 196 196">
             <circle class="ring-bg" cx="98" cy="98" r="85"/>
@@ -666,31 +766,23 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
             <div class="rl">Resell score</div>
           </div>
         </div>
-        <div style="margin-top:16px"><span class="tier-chip" id="tierChip"></span></div>
         <div class="tier-scale" id="tierScale"></div>
-        <div style="font-size:14px;color:var(--mut);line-height:1.55;margin-top:15px" id="vSub"></div>
+        <div style="font-size:14.5px;color:var(--mut);line-height:1.5;margin-top:14px" id="vSub"></div>
       </div>
 
-      <div class="card" style="margin-top:12px;display:flex;align-items:center;gap:14px">
-        <img id="resPhoto" alt="" style="width:62px;height:62px;border-radius:16px;object-fit:cover;flex-shrink:0">
-        <div style="flex:1;min-width:0">
-          <div style="font-size:16px;font-weight:750;letter-spacing:-.03em;line-height:1.25" id="pName">—</div>
-          <div style="font-size:12.5px;color:var(--dim);margin-top:3px" id="pBrand">—</div>
-        </div>
-      </div>
-
-      <div class="card glow" style="margin-top:12px;text-align:center" id="priceCard">
+      <div class="card glow lit" style="margin-top:12px;text-align:center" id="priceCard">
         <div class="eyebrow">Estimated value</div>
-        <div class="num" id="priceVal" style="font-size:46px;margin:6px 0 4px">$0</div>
+        <div class="num" id="priceVal" style="font-size:48px;margin:6px 0 4px">$0</div>
         <div style="font-size:13px;color:var(--mut)" id="priceRange">—</div>
         <div id="confPill" style="display:inline-flex;align-items:center;gap:7px;margin-top:13px;
-             padding:7px 13px;border-radius:10px;background:var(--card2);font-size:12px;
+             padding:7px 14px;border-radius:99px;background:var(--card2);font-size:12px;
              color:var(--mut);font-weight:600"></div>
         <div class="strat-row" id="stratRow"></div>
+        <div class="netline"><span class="nl">You keep</span><span class="nv" id="netVal">$0</span></div>
       </div>
     </div>
 
-    <!-- right: the detail -->
+    <!-- right: the numbers, then the one action that matters -->
     <div>
       <h2 class="sec" style="margin-top:22px">The numbers</h2>
       <div class="mgrid" id="metrics"></div>
@@ -698,23 +790,22 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
       <div id="potentialWrap"></div>
 
       <h2 class="sec">Condition</h2>
-      <div class="card" onclick="go('condition')" style="display:flex;align-items:center;gap:15px">
-        <div style="text-align:center;flex-shrink:0">
-          <div class="num" id="condScore" style="font-size:30px">0</div>
-          <div style="font-size:10px;color:var(--dim);letter-spacing:.09em;margin-top:1px">/100</div>
+      <div class="card cond-card" onclick="go('condition')">
+        <div class="gauge" id="condGauge" style="width:64px;height:64px">
+          <span class="gv" id="condScore" style="font-size:19px">0</span>
         </div>
         <div style="flex:1;min-width:0">
-          <div style="font-size:15px;font-weight:700" id="condGrade">—</div>
-          <div style="font-size:13px;color:var(--mut);margin-top:3px;line-height:1.45" id="condSummary">—</div>
+          <div style="font-size:16px;font-weight:750;letter-spacing:-.02em" id="condGrade">—</div>
+          <div style="font-size:12.5px;color:var(--dim);margin-top:2px">Tap for the full report</div>
         </div>
         <svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:var(--dim);fill:none;
              stroke-width:2;flex-shrink:0"><path d="M9 6l6 6-6 6"/></svg>
       </div>
 
       <div style="margin-top:26px">
-        <button class="btn btn-acc" onclick="toListing()">
-          <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
-          Create listings
+        <button class="btn btn-ebay" onclick="toListing()">
+          <svg viewBox="0 0 24 24"><path d="M3 9h18M3 9l2-4h14l2 4M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M9 13h6"/></svg>
+          List it on eBay
         </button>
         <div class="btn-row" style="margin-top:10px">
           <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="saveDraft()">Save draft</button>
@@ -733,20 +824,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   <div style="height:30px"></div>
 </section>
 
-<!-- ══════════════════════ PLATFORMS ══════════════════════ -->
-<section class="screen scrolls" id="s-platforms">
-  <div class="page-head">
-    <h1>Where should<br>this go?</h1>
-    <p class="lead">Selling at <b style="color:var(--fg)" id="platPrice">$0</b>. Amounts shown are what lands in your account after fees.</p>
-  </div>
-  <div id="platList"></div>
-  <button class="btn btn-acc" style="margin-top:16px" onclick="go('listing')">Write the listings</button>
-  <div style="height:30px"></div>
-</section>
-
 <!-- ══════════════════════ LISTING ══════════════════════ -->
 <section class="screen scrolls" id="s-listing">
-  <div class="seg" id="listSeg"></div>
   <div class="err" id="listErr"></div>
   <div id="listBody"></div>
 </section>
@@ -913,11 +992,12 @@ const authHeaders = (extra = {}) => {
 };
 
 /* ─────────────────────────────── data ─────────────────────────────── */
+/* eBay is the only marketplace with a public write API, so it is the only
+   one this app lists to. Poshmark, Depop and Mercari were removed rather than
+   kept as copy-and-paste handoffs: a button that opens another site and asks
+   the user to finish the job themselves is not a feature, it is an apology. */
 const PLATFORMS = {
-  ebay:     { name:'eBay',     color:'#0064D2', letter:'e' },
-  poshmark: { name:'Poshmark', color:'#731A3B', letter:'P' },
-  depop:    { name:'Depop',    color:'#FF2300', letter:'D' },
-  mercari:  { name:'Mercari',  color:'#5B2D8F', letter:'M' }
+  ebay: { name:'eBay', color:'#0064D2', letter:'e' }
 };
 
 /* Six tiers. Colour flows from here into the ring, the chip and the bars, so
@@ -1087,7 +1167,7 @@ function renderAppbar(id) {
     ? iconBtn(cfg.backIcon || 'back', typeof cfg.back === 'string' ? cfg.back : 'back()', 'Back')
     : cfg.brand
       ? `<span class="brandmark"><span class="mk"><svg viewBox="0 0 24 24" fill="none"
-           stroke-linecap="round" stroke-linejoin="round"><path d="M6 19V5h6a4.5 4.5 0 010 9H6m8 0l5 5"/></svg></span>
+           stroke-linecap="round" stroke-linejoin="round"><path d="M8.6 20.4V8.2A3.2 3.2 0 0111.8 5H18"/><path d="M8.6 13.1h6.9"/></svg></span>
          <span class="wm">Fliparo</span></span>`
       : '';
 
@@ -1162,7 +1242,6 @@ function go(id, opts = {}) {
   if (id === 'inventory') renderInventory();
   if (id === 'profile')   renderProfile();
   if (id === 'settings')  renderSettings();
-  if (id === 'platforms') renderPlatforms();
   if (id === 'condition') renderCondition();
   if (id === 'plan')      renderPlans();
   if (id === 'listing')   initListing();
@@ -1534,45 +1613,50 @@ function renderResults(d) {
   const chip = document.getElementById('tierChip');
   chip.textContent = tier.name;
   chip.style.setProperty('--tc', tier.c);
-  chip.style.setProperty('--tc-bg', tier.c + '1F');
-  chip.style.setProperty('--tc-br', tier.c + '55');
+  chip.style.setProperty('--tc-bg', tier.c + '2E');
+  chip.style.setProperty('--tc-br', tier.c + '66');
   const rank = TIERS.length - TIERS.indexOf(tier);
   document.getElementById('tierScale').innerHTML = TIERS.map((_, i) =>
     `<span class="ts ${i < rank ? 'on' : ''}" style="--tc:${tier.c}"></span>`).join('');
-  document.getElementById('vSub').textContent = d.verdict || tier.line;
-  document.getElementById('verdictCard').style.setProperty('--glow', tier.c + '22');
-  document.getElementById('priceCard').style.setProperty('--glow', tier.c + '18');
+
+  /* One line, not a paragraph. The model's verdict is already a single
+     sentence; if it ever runs long, the tier line is the shorter fallback. */
+  const verdict = (d.verdict || tier.line || '').trim();
+  document.getElementById('vSub').textContent = verdict.length > 120 ? tier.line : verdict;
+  document.getElementById('verdictCard').style.setProperty('--glow', tier.c + '2A');
 
   /* price */
   const conf = clamp(d.priceConfidence);
   document.getElementById('confPill').innerHTML =
     `<span style="width:6px;height:6px;border-radius:50%;background:${conf >= 70 ? 'var(--grn)' : conf >= 40 ? 'var(--amb)' : 'var(--red)'}"></span>
-     ${conf}% price confidence${d.sellThroughDays ? ` · sells in ~${d.sellThroughDays}d` : ''}`;
+     ${conf}% confidence${d.sellThroughDays ? ` · ~${d.sellThroughDays}d to sell` : ''}`;
   document.getElementById('priceRange').textContent =
-    `Recent sales between ${money(d.priceLow)} and ${money(d.priceHigh)}`;
+    `Sold recently: ${money(d.priceLow)} – ${money(d.priceHigh)}`;
 
   document.getElementById('stratRow').innerHTML = [
-    ['quick','Quick sale','~3 days', d.quickSalePrice || d.priceLow],
+    ['quick','Quick','~3 days', d.quickSalePrice || d.priceLow],
     ['market','Market','typical', d.averagePrice],
     ['patient','Patient','weeks', d.patientPrice || d.priceHigh]
-  ].map(([k, n, sd, p]) => `<button class="strat${strategy === k ? ' on' : ''}" onclick="setStrategy('${k}')">
-      <div class="sp">${money(p)}</div><div class="sn">${n}</div><div class="sd">${sd}</div></button>`).join('');
+  ].map(([k, nm, sd, pr]) => `<button class="strat${strategy === k ? ' on' : ''}" onclick="setStrategy('${k}')">
+      <div class="sp">${money(pr)}</div><div class="sn">${nm}</div><div class="sd">${sd}</div></button>`).join('');
 
-  /* condition */
-  document.getElementById('condGrade').textContent   = d.conditionGrade || '—';
-  document.getElementById('condSummary').textContent = d.conditionSummary || '—';
-  const csEl = document.getElementById('condScore');
-  csEl.textContent = cs; csEl.style.color = tierOf(cs).c;
+  document.getElementById('netVal').textContent = money(netFromPrice('ebay', priceFor(d)));
 
-  /* metrics */
-  const s = {}; METRICS.forEach(m => s[m.key] = clamp(d[m.key]));
+  /* condition — a gauge, matching the four metric gauges */
+  document.getElementById('condGrade').textContent = d.conditionGrade || '—';
+  const cg = document.getElementById('condGauge');
+  cg.style.setProperty('--c', tierOf(cs).c);
+  document.getElementById('condScore').textContent = cs;
+
+  /* metrics — four donut gauges. The prose note under each one is gone: the
+     number, the colour and the label already say it, and four paragraphs of
+     hedging turned a glanceable grid into something you had to read. */
+  const sc = {}; METRICS.forEach(m => sc[m.key] = clamp(d[m.key]));
   document.getElementById('metrics').innerHTML = METRICS.map((m, i) => {
-    const v = s[m.key], c = tierOf(v).c;
+    const v = sc[m.key], c = tierOf(v).c;
     return `<div class="metric rise" style="animation-delay:${.3 + i*.06}s">
-      <div class="mn">${m.name}</div>
-      <div class="mv" id="mv-${m.key}" style="color:${c}">0</div>
-      <div class="mt"><div class="mf" id="mf-${m.key}" style="background:${c}"></div></div>
-      <div class="mnote">${v >= 70 ? m.hi : v >= 40 ? m.mid : m.lo}</div></div>`;
+      <div class="gauge" id="g-${m.key}" style="--c:${c}"><span class="gv" id="mv-${m.key}">0</span></div>
+      <div class="mn">${m.name}</div></div>`;
   }).join('');
 
   renderPotential(d, overall, cs);
@@ -1586,12 +1670,13 @@ function renderResults(d) {
     ring.style.transition = '';
     ring.style.stroke = tier.c;
     ring.style.strokeDashoffset = 534.07 * (1 - overall/100);
+    cg.style.setProperty('--p', cs);
     setTimeout(() => {
       countUp(document.getElementById('overallNum'), overall, 1350);
       countUp(document.getElementById('priceVal'), priceFor(d), 1450, '$');
       METRICS.forEach((m, i) => setTimeout(() => {
-        const f = document.getElementById('mf-' + m.key); if (f) f.style.width = s[m.key] + '%';
-        const el = document.getElementById('mv-' + m.key); if (el) countUp(el, s[m.key], 900);
+        const g = document.getElementById('g-' + m.key); if (g) g.style.setProperty('--p', sc[m.key]);
+        const el = document.getElementById('mv-' + m.key); if (el) countUp(el, sc[m.key], 900);
       }, 280 + i*100));
     }, 160);
   }));
@@ -1604,26 +1689,26 @@ function renderPotential(d, overall, cs) {
   const condGain = cs < 88 ? Math.round((95 - cs) * .14) : 0;
   if (condGain > 0) actions.push({
     pts: condGain, t: 'Clean and repair it',
-    s: 'Condition is 14% of the score. A proper clean is the cheapest points on this list.'
+    s: 'The cheapest points on this list.'
   });
 
   const pq = clamp(d.photoQuality?.score);
   if (pq < 75) actions.push({
     pts: 0, label: 'confidence',
     t: 'Reshoot in daylight',
-    s: d.photoQuality?.advice || 'Plain background, natural light, one photo per angle. Better photos raise price confidence and cut lowball offers.'
+    s: 'Plain background, one photo per angle.'
   });
 
   if (!d.styleCode && /Sneakers|Clothing|Outerwear/i.test(d.category || '')) actions.push({
     pts: 0, label: 'listing',
     t: 'Find the style code',
-    s: 'Check the inner tag or box label. Buyers search by style code, and listings that include it get found far more often.'
+    s: 'Check the inner tag. Buyers search by it.'
   });
 
   (Array.isArray(d.defects) ? d.defects : []).filter(x => x.priceImpact).slice(0, 3).forEach(x => actions.push({
     dollars: Math.abs(Number(x.priceImpact) || 0),
     t: `Address the ${String(x.type || 'flaw').toLowerCase()}`,
-    s: `${x.where ? x.where + ' · ' : ''}${x.severity || 'minor'}. Fixing or honestly disclosing this protects the price.`
+    s: `${x.where ? x.where + ' · ' : ''}${x.severity || 'minor'}`
   }));
 
   const potential = Math.min(100, overall + condGain);
@@ -1636,11 +1721,11 @@ function renderPotential(d, overall, cs) {
       <div class="row-between">
         <div>
           <div style="font-size:12px;color:var(--dim);font-weight:700;letter-spacing:.06em;text-transform:uppercase">Could score</div>
-          <div class="num" style="font-size:34px;color:var(--acc);margin-top:2px">${potential}</div>
+          <div class="num" style="font-size:34px;color:var(--acc-hi);margin-top:2px">${potential}</div>
         </div>
-        <div style="text-align:right;font-size:13px;color:var(--mut);line-height:1.5;max-width:20ch">
-          ${potential > overall ? `Up ${potential - overall} points if you do the work below.`
-                                : 'This item is already showing its best.'}
+        <div style="text-align:right;font-size:13px;color:var(--mut);line-height:1.5;max-width:16ch">
+          ${potential > overall ? `+${potential - overall} from the work below`
+                                : 'Already at its best'}
         </div>
       </div>
     </div>
@@ -1661,7 +1746,7 @@ function setStrategy(k) {
   haptic();
 }
 
-function toListing() { go('platforms'); }
+function toListing() { selectedPlatforms = ['ebay']; go('listing'); }
 function saveDraft() { saveItem('draft'); toast('Saved'); setTimeout(() => tabTo('home'), 450); }
 
 /* ═════════════════════════ CONDITION REPORT ═════════════════════════ */
@@ -1724,66 +1809,12 @@ function renderCondition() {
 }
 
 /* ═════════════════════════════ PLATFORMS ═════════════════════════════ */
-async function renderPlatforms() {
-  const d = current; if (!d) return;
-  const price = priceFor(d);
-  document.getElementById('platPrice').textContent = money(price);
-
-  let eb = { configured:false, connected:false }, dp = { configured:false };
-  try {
-    [eb, dp] = await Promise.all([
-      fetch(API + '/api/ebay/status', { headers: authHeaders() }).then(r => r.json()),
-      fetch(API + '/api/depop/status').then(r => r.json())
-    ]);
-  } catch {}
-
-  const fit = d.platformFit || {};
-  const order = Object.keys(PLATFORMS).sort((a, b) => (fit[b] || 0) - (fit[a] || 0));
-
-  document.getElementById('platList').innerHTML = order.map(k => {
-    const p = PLATFORMS[k];
-    const net = d.netPayout?.[k];
-    const netVal = net ? net[strategy === 'quick' ? 'atQuick' : strategy === 'patient' ? 'atPatient' : 'atMarket'] : price;
-    const best = d.bestPlatform === k;
-    let badge;
-    if (k === 'ebay') badge = !eb.configured ? '<span class="badge locked">Setup needed</span>'
-      : me.autoList ? `<span class="badge auto">${eb.connected ? 'Connected' : 'Auto-list'}</span>`
-                    : '<span class="badge pro">Starter</span>';
-    else if (k === 'depop') badge = dp.configured ? '<span class="badge auto">Auto-list</span>'
-                                                  : '<span class="badge locked">API invite-only</span>';
-    else badge = '<span class="badge manual">Copy &amp; go</span>';
-
-    return `<div class="plat${selectedPlatforms.includes(k) ? ' on' : ''}" onclick="togglePlatform('${k}')">
-      <div class="pic" style="background:${p.color}">${p.letter}</div>
-      <div class="pinfo">
-        <div class="pn">${p.name} ${best ? '<span class="badge best">Best fit</span>' : ''}</div>
-        <div class="pd">${badge} ${esc(net?.note || '')}</div>
-        ${best && d.platformReason ? `<div class="pd" style="margin-top:5px;color:var(--acc)">${esc(d.platformReason)}</div>` : ''}
-      </div>
-      <div class="pnet"><div class="v">${money(netVal)}</div><div class="l">you keep</div></div>
-    </div>`;
-  }).join('');
-}
-function togglePlatform(k) {
-  const i = selectedPlatforms.indexOf(k);
-  if (i >= 0) { if (selectedPlatforms.length > 1) selectedPlatforms.splice(i, 1); }
-  else selectedPlatforms.push(k);
-  renderPlatforms(); haptic();
-}
-
 /* ═════════════════════════ LISTING EDITOR ═════════════════════════ */
 let activeListPlatform = null;
 
 async function initListing() {
-  activeListPlatform = selectedPlatforms[0];
-  document.getElementById('listSeg').innerHTML = selectedPlatforms.map(k =>
-    `<button class="${k === activeListPlatform ? 'on' : ''}" onclick="switchListing('${k}')">${PLATFORMS[k].name}</button>`).join('');
+  activeListPlatform = 'ebay';
   await loadListing(activeListPlatform);
-}
-function switchListing(k) {
-  activeListPlatform = k;
-  document.querySelectorAll('#listSeg button').forEach((b, i) => b.classList.toggle('on', selectedPlatforms[i] === k));
-  loadListing(k);
 }
 
 async function loadListing(platform, force = false) {
@@ -1810,7 +1841,7 @@ async function loadListing(platform, force = false) {
 const regenListing = () => activeListPlatform && loadListing(activeListPlatform, true);
 
 function netFromPrice(platform, price) {
-  const F = { ebay:{p:.1335,f:.40}, poshmark:{p:.20,f:0,u:2.95}, depop:{p:.0349,f:.49}, mercari:{p:.10,f:.50} }[platform];
+  const F = { ebay:{p:.1335,f:.40} }[platform];
   if (!F) return price;
   if (F.u && price < 15) return Math.max(0, price - F.u);
   return Math.max(0, price - price*F.p - F.f);
@@ -1818,7 +1849,7 @@ function netFromPrice(platform, price) {
 
 function renderListing(platform) {
   const l = listings[platform];
-  const limit = platform === 'depop' ? 65 : 80;
+  const limit = 80;
   const canAuto = platform === 'ebay' ? me.autoList : false;
 
   document.getElementById('listBody').innerHTML = `
@@ -1852,12 +1883,10 @@ function renderListing(platform) {
       <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="copyListing('${platform}')">Copy all</button>
       <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="saveAndHome()">Save draft</button>
     </div>
-    <button class="btn btn-acc" onclick="publish('${platform}')">
-      ${platform === 'ebay' && !canAuto
+    <button class="btn btn-ebay" onclick="publish('${platform}')">
+      ${!canAuto
         ? `<svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 018 0v3"/></svg>Publish to eBay · Starter`
-        : platform === 'ebay' ? 'Publish to eBay'
-        : platform === 'depop' ? 'Publish to Depop'
-        : `Open ${PLATFORMS[platform].name} &amp; paste`}
+        : `<svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 7"/></svg>Publish to eBay`}
     </button>
     <div style="height:30px"></div>`;
 }
@@ -1900,12 +1929,9 @@ async function publish(platform) {
   const l = syncListingFromForm(platform);
   if (!l.title.trim())     return showErr('listErr', 'Give the listing a title first.');
   if (!l.suggestedPrice)   return showErr('listErr', 'Set a price first.');
-  if (platform === 'ebay') {
-    if (!me.signedIn) { navStack.push('listing'); return requireAccount('Automatic listing needs an account.'); }
-    if (!me.autoList) return showPaywall('listing');
-    return publishEbay(l);
-  }
-  return publishAssisted(platform, l);
+  if (!me.signedIn) { navStack.push('listing'); return requireAccount('Automatic listing needs an account.'); }
+  if (!me.autoList) return showPaywall('listing');
+  return publishEbay(l);
 }
 
 function pubSteps(steps) {
@@ -1968,18 +1994,6 @@ async function publishEbay(l) {
   }
 }
 
-async function publishAssisted(platform, l) {
-  const txt = `${l.title}\n\n${l.description}\n\n${l.flawsDisclosure || ''}`.trim();
-  try { await navigator.clipboard.writeText(txt); } catch {}
-  saveItem('draft', {});
-  const links = {
-    poshmark:'https://poshmark.com/create-listing',
-    depop:'https://www.depop.com/products/create/',
-    mercari:'https://www.mercari.com/sell/'
-  }[platform];
-  showSheet('handoff', { platform, link: links, price: l.suggestedPrice });
-}
-
 async function connectEbay() {
   try {
     const r = await fetch(API + `/api/ebay/login?device=${DEVICE_ID}`);
@@ -1996,35 +2010,21 @@ const closeSheet = () => { document.getElementById('sheet').classList.remove('sh
 
 function showSheet(kind, data = {}) {
   const b = document.getElementById('sheetBody');
-  if (kind === 'handoff') {
-    const p = PLATFORMS[data.platform];
-    b.innerHTML = `<h3>Your ${p.name} listing is ready</h3>
-      <p>Everything is on your clipboard. ${p.name} has no public API for creating listings, so this last step is manual — about twenty seconds.</p>
-      <div class="card tight" style="margin-bottom:14px">
-        <div class="list-link"><span>Price</span><span class="lv">$${data.price}</span></div>
-        <div class="list-link"><span>Photos</span><span class="lv">${photos.length} in your library</span></div></div>
-      <a href="${data.link}" target="_blank" rel="noopener"><button class="btn btn-acc">Open ${p.name}</button></a>
-      <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet();tabTo('home')">Done</button>`;
-  } else if (kind === 'ebaySetup') {
+  if (kind === 'ebaySetup') {
     b.innerHTML = `<h3>eBay isn't configured yet</h3>
-      <p>Auto-publishing needs an eBay developer keyset on your server. It's free and takes about ten minutes.</p>
+      <p>Publishing needs an eBay developer keyset on your server. It's free and takes about ten minutes.</p>
       <div class="card tight" style="margin-bottom:14px;font-size:13.5px;line-height:1.8;color:var(--mut)">
         1. Sign up at developer.ebay.com<br>2. Create a keyset and an RuName<br>
-        3. Paste both into <b style="color:var(--fg)">server/.env</b><br>4. Restart the server</div>
+        3. Paste both into <b style="color:var(--fg)">.env</b><br>4. Restart the server</div>
       <button class="btn btn-ghost" onclick="closeSheet()">Got it</button>`;
-  } else if (kind === 'depopGate') {
-    b.innerHTML = `<h3>Depop's API is invite-only</h3>
-      <p>Depop runs a Selling API but it isn't open to the public. The integration is already built into your server — the moment you're approved and add your key, this starts publishing for real.</p>
-      <button class="btn btn-ghost" onclick="closeSheet()">Close</button>`;
   } else if (kind === 'privacy') {
     b.innerHTML = `<h3>Privacy</h3>
       <p>Your photos go to this app's server, are forwarded once to Anthropic for analysis, and are not stored by either. Your scan history lives on this device. Your email is used only to hold your plan and nothing else.</p>
       <button class="btn btn-ghost" onclick="closeSheet()">Close</button>`;
   } else if (kind === 'legal') {
-    b.innerHTML = `<h3>How each marketplace works</h3>
-      <p><b style="color:var(--fg)">eBay</b> — public Sell API. Fully automated with your permission via OAuth.</p>
-      <p><b style="color:var(--fg)">Depop</b> — private partner API. Automated once approved.</p>
-      <p><b style="color:var(--fg)">Poshmark &amp; Mercari</b> — no public write API. We prepare the listing and hand off. We deliberately do not scrape these: it breaks their terms and gets sellers banned.</p>
+    b.innerHTML = `<h3>Why eBay only</h3>
+      <p><b style="color:var(--fg)">eBay</b> runs a genuine public Sell API. Fliparo creates the inventory item, builds the offer and publishes it — with your permission, over OAuth.</p>
+      <p>Poshmark, Depop and Mercari have no public write API. The only way to post to them automatically is to scrape, which breaks their terms and gets sellers banned. We would rather do one marketplace properly than four badly.</p>
       <button class="btn btn-ghost" onclick="closeSheet()">Close</button>`;
   }
   openSheet();
@@ -2105,7 +2105,7 @@ function openItem(id) {
 function relist(id) {
   const it = inventory.find(i => i.id === id); if (!it) return;
   current = it.data; photos = it.data.photos || []; listings = {};
-  go('platforms');
+  go('listing');
 }
 function markSold(id) {
   const it = inventory.find(i => i.id === id); if (!it) return;
@@ -2214,12 +2214,9 @@ function renderProfile() {
 
 async function renderAccounts(elId) {
   const el = document.getElementById(elId); if (!el) return;
-  let eb = { configured:false, connected:false }, dp = { configured:false };
+  let eb = { configured:false, connected:false };
   try {
-    [eb, dp] = await Promise.all([
-      fetch(API + '/api/ebay/status', { headers: authHeaders() }).then(r => r.json()),
-      fetch(API + '/api/depop/status').then(r => r.json())
-    ]);
+    eb = await fetch(API + '/api/ebay/status', { headers: authHeaders() }).then(r => r.json());
   } catch {}
   el.innerHTML = `
     <div class="plat" onclick="${eb.configured && !eb.connected ? 'connectEbay()' : "showSheet('ebaySetup')"}">
@@ -2227,15 +2224,9 @@ async function renderAccounts(elId) {
       <div class="pinfo"><div class="pn">eBay</div><div class="pd">${
         eb.connected ? `<span class="badge auto">Connected · ${eb.env}</span>`
         : eb.configured ? 'Tap to connect your account' : 'Needs server setup'}</div></div></div>
-    <div class="plat" onclick="showSheet('depopGate')">
-      <div class="pic" style="background:#FF2300">D</div>
-      <div class="pinfo"><div class="pn">Depop</div><div class="pd">${dp.configured ? '<span class="badge auto">Connected</span>' : 'API access invite-only'}</div></div></div>
-    <div class="plat" onclick="showSheet('legal')">
-      <div class="pic" style="background:#731A3B">P</div>
-      <div class="pinfo"><div class="pn">Poshmark</div><div class="pd">Copy &amp; go — no public API</div></div></div>
-    <div class="plat" onclick="showSheet('legal')">
-      <div class="pic" style="background:#5B2D8F">M</div>
-      <div class="pinfo"><div class="pn">Mercari</div><div class="pd">Copy &amp; go — no public API</div></div></div>`;
+    <div class="plat" onclick="showSheet('legal')" style="opacity:.75">
+      <div class="pic" style="background:var(--card2);color:var(--mut)">?</div>
+      <div class="pinfo"><div class="pn">Other marketplaces</div><div class="pd">Why eBay is the only one</div></div></div>`;
 }
 
 function renderSettings() {
