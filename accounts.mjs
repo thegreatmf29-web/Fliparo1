@@ -29,11 +29,15 @@ export const PLANS = {
     name: 'Free',
     price: 0,
     priceLabel: '$0',
-    scans: 1,
+    /* Three, not one. One proves the app works and then stops — no room to
+       form a habit, and no second look at the output before the wall. The
+       anonymous allowance and the signed-in free allowance are separate
+       counters, so a visitor who makes an account gets three more. */
+    scans: 3,
     autoList: false,
-    blurb: 'Try it on one thing.',
+    blurb: 'Try it on a few things.',
     features: [
-      '1 item a month',
+      '3 items a month',
       'Full valuation and condition report',
       'A finished eBay listing, written for you',
       'Paste it in yourself'
