@@ -1218,7 +1218,9 @@ let inventory = store('inventory') || [];
 let homeLine = null;
 let viewingItem = null, invFilter = 'all', navStack = [], scanTimers = [];
 let token = store('token') || null;
-let me = { signedIn: false, plan: 'free', scansUsed: 0, scansLimit: 1, scansLeft: 1, unlimited: false, autoList: false };
+/* Mirrors PLANS.free on the server. Only used for the first paint, before
+   /api/me answers — but a wrong number there flickers visibly. */
+let me = { signedIn: false, plan: 'free', scansUsed: 0, scansLimit: 3, scansLeft: 3, unlimited: false, autoList: false };
 let PLANS = [];
 let billingReady = false;
 let pendingEmail = '';
@@ -1258,7 +1260,7 @@ const METRICS = [
 ];
 
 /* A worked example, so a first-time visitor can judge the output without
-   first finding an item, photographing it, and spending the one free scan
+   first finding an item, photographing it, and spending one of the free
    they get. Every number here is illustrative and the screen says so — the
    point is to show the shape and depth of a real report, not to make a claim
    about this particular pair of shoes. */
@@ -1657,9 +1659,9 @@ function renderQuota() {
   const planName = (me.planName || (me.plan || 'free')).replace(/^./, c => c.toUpperCase());
   const left = me.unlimited ? 'Unlimited items'
     : `${me.scansLeft} of ${me.scansLimit} item${me.scansLimit === 1 ? '' : 's'} left`;
-  /* On the free plan this row read "1 of 1 scans left" beside an empty bar —
-     a status line about a limit. Once there is inventory, the more useful
-     number is what the scans have found, which grows instead of shrinking. */
+  /* On the free plan this row is a countdown against a limit. Once there is
+     inventory, the more useful number is what those items are worth, which
+     grows instead of shrinking. */
   const worth = inventory.reduce((a, i) => a + (i.price || 0), 0);
   const showWorth = inventory.length >= 2 && worth > 0;
   const html = `<div class="quota">
@@ -1752,7 +1754,7 @@ function signOut() {
   /* Leaving this behind produced "Not signed in" sitting directly above
      "Flipping since May 2026" on the profile screen. */
   store('joined', null);
-  me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:1, scansLeft:1, unlimited:false, autoList:false };
+  me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:3, scansLeft:3, unlimited:false, autoList:false };
   renderNav(); renderQuota();
   toast('Signed out');
   tabTo('home');
@@ -1874,8 +1876,8 @@ function showPaywall(kind) {
        asking for a card. Showing them a price here would be both pushier and
        less accurate. */
     b.innerHTML = `
-      <h3>One more on us</h3>
-      <p>Create an account and your next item is free. No password, no card — just an email and a six-digit code.</p>
+      <h3>Three more on us</h3>
+      <p>Create an account and you get three more, free. No password, no card — just an email and a six-digit code.</p>
       <button class="btn btn-acc" onclick="closeSheet();requireAccount()">Create an account</button>
       <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet()">Not now</button>`;
   } else if (kind === 'quota') {
@@ -2053,7 +2055,7 @@ async function runAnalysis() {
   } catch (err) {
     stopScanAnim();
     go('scan', { replace: true });
-    if (err.code === 'signup') { await refreshMe(); return requireAccount('You have used your free scan. Create an account to keep going.'); }
+    if (err.code === 'signup') { await refreshMe(); return requireAccount('That is your free three. Create an account for three more.'); }
     if (err.code === 'quota')  { await refreshMe(); return showPaywall('quota'); }
     showErr('scanErr', friendlyError(err));
   }
@@ -2762,11 +2764,11 @@ function deleteItem() {
    and each one still lands on the same idea: the stuff you own is worth money
    you have not counted. */
 const HOME_LINES = [
-  { eyebrow: 'Point. Shoot. Price.',   head: "What's in<br>your closet?" },
-  { eyebrow: 'Resale intelligence',    head: 'Your junk drawer<br>has a number' },
-  { eyebrow: 'Photo powered pricing',  head: 'Find the money<br>in your stuff' },
-  { eyebrow: 'Real sold comps',        head: 'Know before<br>you sell' },
-  { eyebrow: 'One photo, one price',   head: 'Every shelf is<br>a price list' }
+  { eyebrow: 'Point. Shoot. Price.',     head: "What's in<br>your closet?" },
+  { eyebrow: 'Resale intelligence',      head: 'Your junk drawer<br>has a number' },
+  { eyebrow: 'Photo powered pricing',    head: 'Find the money<br>in your stuff' },
+  { eyebrow: 'Photograph. Price. List.', head: 'Shelf to listing<br>in one minute' },
+  { eyebrow: 'One photo, one price',     head: 'Guess less.<br>Sell for more' }
 ];
 
 function renderHome() {
@@ -2817,10 +2819,10 @@ function renderHome() {
   const stale = !me.signedIn && inventory.length >= 2;
   document.getElementById('homeUpsell').innerHTML = me.signedIn ? '' : `
     <div class="card lit" style="margin-top:26px;text-align:center">
-      <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Create an account, get one more free</div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Create an account, get three more free</div>
       <p style="font-size:13.5px;color:var(--mut);line-height:1.55;margin:8px 0 16px">
         ${stale
-          ? `Your ${inventory.length} items live only in this browser — clear it and they're gone. An account keeps them, and adds one more.`
+          ? `Your ${inventory.length} items live only in this browser — clear it and they're gone. An account keeps them, and adds three more.`
           : 'No password. Just an email and a six-digit code.'}</p>
       <button class="btn btn-acc" style="margin:0 auto;max-width:260px" onclick="requireAccount()">Create an account</button>
     </div>`;
