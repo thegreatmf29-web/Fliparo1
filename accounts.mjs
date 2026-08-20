@@ -76,6 +76,30 @@ export const PLANS = {
 
 const PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
+/* ═════════════════════════════════ owners ════════════════════════════════
+   Emails in OWNER_EMAILS scan without limit. Comma-separated, matched
+   case-insensitively.
+
+   Deliberately NOT a member of PLANS: keeping it out means it can never be
+   rendered on the pricing page, never be selected at checkout, and never be
+   written to user.plan by a Stripe webhook. Ownership is derived from the
+   verified email on every request instead of stored on the record, so it
+   cannot be granted by tampering with a row — and revoking it is one
+   environment variable away, with no data migration.
+   ========================================================================= */
+const OWNER_EMAILS = new Set(
+  String(process.env.OWNER_EMAILS || '')
+    .split(',').map(e => e.trim().toLowerCase()).filter(Boolean)
+);
+
+export const isOwner = user =>
+  !!user?.email && OWNER_EMAILS.has(String(user.email).trim().toLowerCase());
+
+const OWNER_PLAN = {
+  id: 'owner', name: 'Owner', price: 0, priceLabel: '—',
+  scans: Infinity, autoList: true, blurb: 'Unlimited.', features: []
+};
+
 /* ═══════════════════════════════ config ══════════════════════════════════ */
 
 const SECRET = process.env.SESSION_SECRET
@@ -148,18 +172,24 @@ function rollPeriod(u) {
 }
 
 export function planOf(user) {
+  if (isOwner(user)) return OWNER_PLAN;
   return PLANS[user?.plan] || PLANS.free;
 }
 
 export function quotaOf(user) {
   const plan = planOf(user);
   const used = user?.scansUsed || 0;
+  /* JSON.stringify turns Infinity into null, so an unlimited plan reports a
+     boolean and null counts rather than a number the client would render as
+     "Infinity" or, worse, compare against. */
+  const unlimited = plan.scans === Infinity;
   return {
     plan: plan.id,
     planName: plan.name,
     scansUsed: used,
-    scansLimit: plan.scans,
-    scansLeft: Math.max(0, plan.scans - used),
+    unlimited,
+    scansLimit: unlimited ? null : plan.scans,
+    scansLeft: unlimited ? null : Math.max(0, plan.scans - used),
     autoList: plan.autoList,
     renewsAt: (user?.periodStart || Date.now()) + PERIOD_MS
   };
@@ -188,7 +218,7 @@ export async function checkScanAllowed(req) {
   const user = await currentUser(req);
   if (user) {
     const q = quotaOf(user);
-    if (q.scansLeft <= 0) {
+    if (!q.unlimited && q.scansLeft <= 0) {
       return {
         ok: false, user,
         status: 402,
@@ -338,6 +368,7 @@ export async function me(req, res) {
       signedIn: false,
       plan: 'free',
       scansUsed: q.scansUsed,
+      unlimited: false,
       scansLimit: PLANS.free.scans,
       scansLeft: Math.max(0, PLANS.free.scans - q.scansUsed),
       autoList: false
