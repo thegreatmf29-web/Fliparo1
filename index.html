@@ -1990,9 +1990,35 @@ async function publishEbay(l) {
     if (!st.connected)  { pubStep(0, 'fail', 'Connect your eBay account to continue'); document.getElementById('pubCancel').style.display=''; return connectEbay(); }
     pubStep(0, 'done', `Connected · ${st.env}`);
 
+    /* eBay fetches photos by URL — it cannot take the base64 data URLs the
+       scan produced. So they are uploaded first and the resulting public URLs
+       are what gets sent. Previously this read an object property nothing
+       ever assigned, so every listing published with no photos at all. */
     pubStep(1, 'doing');
-    const imageUrls = current.hostedImageUrls || [];
-    pubStep(1, 'done', imageUrls.length ? `${imageUrls.length} photos` : 'Text first — add photos in Seller Hub');
+    let imageUrls = current.hostedImageUrls || [];
+    if (!imageUrls.length) {
+      const shots = (current.photos && current.photos.length ? current.photos : photos)
+        .filter(p => typeof p === 'string' && p.startsWith('data:'));
+      if (shots.length) {
+        try {
+          const ir = await fetch(API + '/api/images', {
+            method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
+            body: JSON.stringify({ images: shots.slice(0, 12) })
+          });
+          const ij = await ir.json();
+          if (!ir.ok) throw new Error(ij.error || 'Upload failed');
+          imageUrls = ij.urls || [];
+          current.hostedImageUrls = imageUrls;   // reuse if this publish is retried
+        } catch (e) {
+          /* A listing with no photos is worth far less than no listing at all,
+             so this warns and continues rather than aborting the publish. */
+          pubStep(1, 'done', `Photos failed: ${e.message} — add them in Seller Hub`);
+        }
+      }
+    }
+    if (imageUrls.length) pubStep(1, 'done', `${imageUrls.length} photo${imageUrls.length > 1 ? 's' : ''} uploaded`);
+    else if (!document.getElementById('ps-1')?.textContent.includes('failed'))
+      pubStep(1, 'done', 'No photos — add them in Seller Hub');
 
     pubStep(2, 'doing');
     const r = await fetch(API + '/api/ebay/publish', {
@@ -2006,7 +2032,7 @@ async function publishEbay(l) {
       if (j.code === 'upgrade') showPaywall('listing');
       return;
     }
-    pubStep(2, 'done', `Offer ${j.offerId}`);
+    pubStep(2, 'done', j.categoryName ? `${j.categoryName} · offer ${j.offerId}` : `Offer ${j.offerId}`);
     pubStep(3, 'doing');
     await new Promise(r => setTimeout(r, 450));
     pubStep(3, 'done', `Listing ${j.listingId}`);
