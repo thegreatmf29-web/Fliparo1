@@ -7,3 +7,6 @@ dist/
 ios/
 android/
 .tokens.json
+.data.json
+.data.json.tmp
+.images/
