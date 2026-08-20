@@ -1004,7 +1004,7 @@ let tone = store('tone') || 'clean';
 let inventory = store('inventory') || [];
 let viewingItem = null, invFilter = 'all', navStack = [], scanTimers = [];
 let token = store('token') || null;
-let me = { signedIn: false, plan: 'free', scansUsed: 0, scansLimit: 1, scansLeft: 1, autoList: false };
+let me = { signedIn: false, plan: 'free', scansUsed: 0, scansLimit: 1, scansLeft: 1, unlimited: false, autoList: false };
 let PLANS = [];
 let billingReady = false;
 let pendingEmail = '';
@@ -1295,13 +1295,14 @@ async function refreshMe() {
 }
 
 function renderQuota() {
-  const pct = me.scansLimit ? Math.min(100, (me.scansUsed / me.scansLimit) * 100) : 0;
+  const pct = me.unlimited ? 100 : (me.scansLimit ? Math.min(100, (me.scansUsed / me.scansLimit) * 100) : 0);
   const planName = (me.planName || (me.plan || 'free')).replace(/^./, c => c.toUpperCase());
+  const left = me.unlimited ? 'Unlimited scans' : `${me.scansLeft} of ${me.scansLimit} scans left`;
   const html = `<div class="quota">
-    <span class="qtxt">${me.scansLeft} of ${me.scansLimit} scans left</span>
+    <span class="qtxt">${left}</span>
     <span class="qbar"><span class="qfill" style="width:${pct}%;
-      background:${me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'}"></span></span>
-    ${me.plan === 'pro' ? `<span class="qtxt">${planName}</span>`
+      background:${!me.unlimited && me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'}"></span></span>
+    ${me.unlimited || me.plan === 'pro' ? `<span class="qtxt">${planName}</span>`
       : `<span class="qup" onclick="go('plan')">Upgrade</span>`}
   </div>`;
   const h = document.getElementById('homeQuota');
@@ -1310,9 +1311,9 @@ function renderQuota() {
   const s = document.getElementById('sideQuota');
   if (s) s.innerHTML = `<div style="font-weight:700;color:var(--fg);font-size:13px;margin-bottom:7px">${planName} plan</div>
     <div class="qbar" style="height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden;margin-bottom:8px">
-      <div style="height:100%;width:${pct}%;background:${me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'};border-radius:3px"></div></div>
-    ${me.scansLeft} of ${me.scansLimit} scans left
-    ${me.plan !== 'pro' ? `<div style="margin-top:9px"><a onclick="tabTo('plan')" style="color:var(--acc);font-weight:700;cursor:pointer">Upgrade →</a></div>` : ''}`;
+      <div style="height:100%;width:${pct}%;background:${!me.unlimited && me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'};border-radius:3px"></div></div>
+    ${left}
+    ${!me.unlimited && me.plan !== 'pro' ? `<div style="margin-top:9px"><a onclick="tabTo('plan')" style="color:var(--acc);font-weight:700;cursor:pointer">Upgrade →</a></div>` : ''}`;
 }
 
 function requireAccount(reason) {
@@ -1383,7 +1384,7 @@ async function submitCode() {
 
 function signOut() {
   token = null; store('token', null);
-  me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:1, scansLeft:1, autoList:false };
+  me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:1, scansLeft:1, unlimited:false, autoList:false };
   renderNav(); renderQuota();
   toast('Signed out');
   tabTo('home');
@@ -1534,7 +1535,7 @@ function renderPhotoGrid() {
 function removePhoto(i) { photos.splice(i, 1); renderPhotoGrid(); haptic(); }
 
 function startScan() {
-  if (me.scansLeft <= 0) return showPaywall('quota');
+  if (!me.unlimited && me.scansLeft <= 0) return showPaywall('quota');
   photos = []; current = null; listings = {};
   document.getElementById('scanNotes').value = '';
   hideErr('scanErr'); renderPhotoGrid();
@@ -2221,8 +2222,8 @@ function renderProfile() {
     <div class="card" style="margin-bottom:14px">
       <div class="row-between">
         <div><div style="font-size:15px;font-weight:700">${planName} plan</div>
-          <div style="font-size:13px;color:var(--mut);margin-top:3px">${me.scansLeft} of ${me.scansLimit} scans left this month</div></div>
-        <button class="btn btn-acc btn-sm" onclick="tabTo('plan')">${me.plan === 'free' ? 'Upgrade' : 'Manage'}</button>
+          <div style="font-size:13px;color:var(--mut);margin-top:3px">${me.unlimited ? 'Unlimited scans' : `${me.scansLeft} of ${me.scansLimit} scans left this month`}</div></div>
+        ${me.unlimited ? '' : `<button class="btn btn-acc btn-sm" onclick="tabTo('plan')">${me.plan === 'free' ? 'Upgrade' : 'Manage'}</button>`}
       </div>
     </div>
 
