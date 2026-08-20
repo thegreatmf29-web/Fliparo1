@@ -173,6 +173,12 @@ function gate(req, res, next) {
   const today = new Date().toISOString().slice(0, 10);
   if (today !== dayKey) { dayKey = today; dayCount = 0; }
 
+  /* Owners skip abuse limiting entirely. This runs after quotaGate, which
+     populates req.quotaCtx without consuming anything, so the flag is
+     available here. Their scans still count toward dayCount so the operator
+     can see real usage — they just are not blocked by it. */
+  if (req.quotaCtx?.quota?.unlimited) { dayCount++; return next(); }
+
   if (DAILY_CEILING && dayCount >= DAILY_CEILING) {
     return res.status(503).json({
       error: 'Fliparo has hit its daily scan limit. Try again tomorrow.',
@@ -358,7 +364,7 @@ function netFor(platform, price) {
    POST /api/analyze
    Body: { images: [dataUrl,...], notes?, category? }
    ========================================================================== */
-app.post('/api/analyze', gate, quotaGate, async (req, res) => {
+app.post('/api/analyze', quotaGate, gate, async (req, res) => {
   try {
     const { images = [], notes = '' } = req.body;
     if (!Array.isArray(images) || images.length === 0) {
