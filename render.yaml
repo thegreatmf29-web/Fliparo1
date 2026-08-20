@@ -67,6 +67,10 @@ services:
       - key: OWNER_EMAILS
         sync: false
 
+      # Google OAuth web client id. Public by nature — it ships in the page.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+
       # ── billing ──────────────────────────────────────────────────────────
       - key: STRIPE_SECRET_KEY
         sync: false
