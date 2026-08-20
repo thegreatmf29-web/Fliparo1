@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
    file readable. See accounts.mjs for why quotas are enforced server-side. */
 import * as accounts from './accounts.mjs';
 import * as store from './store.mjs';
+import * as images from './images.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -112,6 +113,32 @@ const server = http.createServer(async (req, rawRes) => {
     let i = 0;
     const next = () => { const fn = match.h[i++]; if (fn) fn(req, res, next); };
     return next();
+  }
+
+  /* ---- hosted listing images -----------------------------------------------
+     eBay's Inventory API takes `imageUrls`, not image bytes: its servers fetch
+     each URL and copy the photo into eBay Picture Services at publish time.
+     So this route has to be reachable by a stranger — no session, no token.
+     That is safe because ids are 128 bits of randomness and are never listed;
+     knowing one tells you nothing about any other.
+
+     It lives here rather than in a route table because the router matches
+     paths exactly and this needs a prefix. -------------------------------- */
+  if (req.method === 'GET' && url.pathname.startsWith('/i/')) {
+    try {
+      const img = await images.get(url.pathname.slice(3));
+      if (!img) return send(rawRes, 404, 'Not found');
+      return send(rawRes, 200, img.buf, {
+        'content-type': img.mime,
+        /* Immutable: the id is derived from nothing but chance, so a given URL
+           can never point at different bytes. Lets eBay and browsers cache
+           hard, and keeps repeat fetches off the database. */
+        'cache-control': 'public, max-age=31536000, immutable'
+      });
+    } catch (e) {
+      console.error('image serve:', e.message);
+      return send(rawRes, 500, 'Image unavailable');
+    }
   }
 
   /* ---- static files, then SPA fallback -------------------------------------
@@ -504,6 +531,10 @@ const EBAY_SANDBOX = (process.env.EBAY_ENV || 'sandbox') !== 'production';
 const EBAY_AUTH_HOST = EBAY_SANDBOX ? 'auth.sandbox.ebay.com' : 'auth.ebay.com';
 const EBAY_API_HOST  = EBAY_SANDBOX ? 'api.sandbox.ebay.com' : 'api.ebay.com';
 const EBAY_SCOPES = [
+  /* The bare api_scope is what the Taxonomy API checks against. Without it,
+     category suggestion 403s on some accounts while every sell.* call still
+     works — a failure that looks like a bug in the category code. */
+  'https://api.ebay.com/oauth/api_scope',
   'https://api.ebay.com/oauth/api_scope/sell.inventory',
   'https://api.ebay.com/oauth/api_scope/sell.account',
   'https://api.ebay.com/oauth/api_scope/sell.fulfillment'
@@ -623,6 +654,85 @@ const EBAY_CONDITION = {
   'Poor': 'USED_ACCEPTABLE'
 };
 
+/* ==========================================================================
+   POST /api/images
+   Body: { images: [dataUrl, ...] }  →  { urls: [absolute https urls] }
+
+   Signed-in only. Publishing already requires a paid plan, so there is no
+   case where an anonymous caller needs this — and leaving it open would make
+   the server free image hosting for anyone who found the endpoint.
+   ========================================================================== */
+app.post('/api/images', async (req, res) => {
+  try {
+    const user = await accounts.currentUser(req);
+    if (!user) return res.status(401).json({ error: 'Sign in to upload photos.' });
+
+    const list = Array.isArray(req.body?.images) ? req.body.images : [];
+    if (!list.length) return res.status(400).json({ error: 'No images given.' });
+
+    const base = (process.env.PUBLIC_URL || '').replace(/\/+$/, '') || `https://${req.get('host')}`;
+    if (/^https?:\/\/localhost|127\.0\.0\.1/.test(base)) {
+      /* eBay fetches these itself. A localhost URL is not a slightly worse
+         URL, it is one eBay can never resolve — say so now rather than
+         letting publish fail with eBay's opaque image error. */
+      return res.status(400).json({
+        error: 'PUBLIC_URL points at localhost, which eBay cannot reach. Set it to your public URL.'
+      });
+    }
+
+    const urls = [];
+    for (const dataUrl of list.slice(0, images.MAX_PER_ITEM)) {
+      const { id, ext } = await images.put(dataUrl);
+      urls.push(images.urlFor(base, id, ext));
+    }
+    res.json({ urls, stored: images.DRIVER });
+  } catch (e) {
+    console.error('image upload:', e.message);
+    res.status(400).json({ error: e.message || 'Could not store the photos.' });
+  }
+});
+
+/* --------------------------------------------------------------------------
+   Category resolution.
+
+   Every listing used to go out as 175759 because the client never sent a
+   category. Wrong category means poor search placement and, in categories
+   with required aspects, an outright publish rejection.
+
+   The tree id is fetched once and cached: it is a per-marketplace constant,
+   and re-fetching it on every publish would add a round trip for a value that
+   never changes.
+
+   Failure here is deliberately soft. A missing suggestion should degrade to
+   the fallback category and still publish — losing the listing because the
+   taxonomy lookup timed out would be a worse outcome than a wrong category.
+   -------------------------------------------------------------------------- */
+const FALLBACK_CATEGORY = process.env.EBAY_FALLBACK_CATEGORY_ID || '175759';
+let categoryTreeId = null;
+
+async function ebayCategoryTree(token) {
+  if (categoryTreeId) return categoryTreeId;
+  const j = await ebayFetch(token, '/commerce/taxonomy/v1/get_default_category_tree_id?marketplace_id=EBAY_US');
+  categoryTreeId = j?.categoryTreeId || null;
+  return categoryTreeId;
+}
+
+async function suggestCategory(token, query) {
+  const q = String(query || '').trim().slice(0, 120);
+  if (!q) return null;
+  try {
+    const tree = await ebayCategoryTree(token);
+    if (!tree) return null;
+    const j = await ebayFetch(token,
+      `/commerce/taxonomy/v1/category_tree/${tree}/get_category_suggestions?q=${encodeURIComponent(q)}`);
+    const hit = j?.categorySuggestions?.[0]?.category;
+    return hit?.categoryId ? { id: String(hit.categoryId), name: hit.categoryName || '' } : null;
+  } catch (e) {
+    console.error('category suggestion:', e.message);
+    return null;
+  }
+}
+
 async function ebayFetch(token, endpoint, opts = {}) {
   const r = await fetch(`https://${EBAY_API_HOST}${endpoint}`, {
     ...opts,
@@ -660,7 +770,17 @@ app.post('/api/ebay/publish', async (req, res) => {
     if (!item || !listing) return res.status(400).json({ error: 'Missing item or listing data.' });
 
     const token = await ebayToken(deviceId);
-    const sku = `RAI-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+    const sku = `FLIP-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+
+    /* An explicit category from the client wins; otherwise ask eBay what this
+       title belongs under; otherwise fall back. */
+    let categoryId = req.body.categoryId ? String(req.body.categoryId) : null;
+    let categoryName = '';
+    if (!categoryId) {
+      const guess = await suggestCategory(token, `${listing.title || ''} ${item.brand || ''}`.trim());
+      if (guess) { categoryId = guess.id; categoryName = guess.name; }
+    }
+    if (!categoryId) categoryId = FALLBACK_CATEGORY;
 
     const aspects = {};
     if (item.brand)     aspects.Brand = [String(item.brand)];
@@ -691,7 +811,7 @@ app.post('/api/ebay/publish', async (req, res) => {
       body: JSON.stringify({
         sku, marketplaceId: 'EBAY_US', format: 'FIXED_PRICE',
         availableQuantity: 1,
-        categoryId: String(req.body.categoryId || '175759'),
+        categoryId,
         listingDescription: listing.description,
         pricingSummary: { price: { value: String(listing.suggestedPrice), currency: 'USD' } },
         listingPolicies: {
@@ -708,6 +828,7 @@ app.post('/api/ebay/publish', async (req, res) => {
 
     res.json({
       ok: true, sku, offerId: offer.offerId, listingId: published.listingId,
+      categoryId, categoryName, photos: imageUrls.length,
       url: EBAY_SANDBOX
         ? `https://sandbox.ebay.com/itm/${published.listingId}`
         : `https://www.ebay.com/itm/${published.listingId}`
