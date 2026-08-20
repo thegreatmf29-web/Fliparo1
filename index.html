@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="Photograph anything. Know what it's worth. List it in one tap.">
 <title>Fliparo</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23C084FC'/><stop offset='1' stop-color='%236D28D9'/></linearGradient></defs><rect width='32' height='32' rx='9' fill='url(%23g)'/><path d='M11.5 25V11.5A3 3 0 0114.5 8.5h7' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/><path d='M11.5 17.5h7.5' stroke='%23fff' stroke-width='3' fill='none' stroke-linecap='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23C084FC'/><stop offset='1' stop-color='%236D28D9'/></linearGradient></defs><rect width='32' height='32' rx='9' fill='url(%23g)'/><g transform='skewX(-7) translate(2.4 0)' fill='%23fff'><rect x='9.2' y='6.5' width='4.4' height='19.7' rx='2.2'/><rect x='9.2' y='6.5' width='14.1' height='4.4' rx='2.2'/><rect x='9.2' y='14.4' width='9.9' height='4.4' rx='2.2'/></g></svg>">
 
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
@@ -131,12 +131,17 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 /* The mark is a gradient squircle with a real halo. ::after is a blurred
    copy of the same gradient sitting behind it — a box-shadow cannot follow
    a gradient, so this is how the glow picks up the same two hues. */
-.brandmark .mk{position:relative;width:30px;height:30px;border-radius:10px;
+.brandmark .mk{position:relative;width:31px;height:31px;border-radius:11px;
   background:var(--acc-grad);display:grid;place-items:center;flex-shrink:0;isolation:isolate}
 .brandmark .mk::after{content:'';position:absolute;inset:0;border-radius:inherit;
   background:inherit;filter:blur(9px);opacity:.6;z-index:-1}
-.brandmark .mk svg{width:17px;height:17px;stroke:#fff;fill:none;stroke-width:2.6;
-  stroke-linecap:round;stroke-linejoin:round}
+.brandmark .mk svg{width:18px;height:18px;fill:#fff;stroke:none}
+/* A hairline of light along the top edge — the detail that separates a
+   gradient rectangle from something that looks lit. */
+.brandmark .mk::before{content:'';position:absolute;inset:0;border-radius:inherit;
+  background:linear-gradient(180deg,rgba(255,255,255,.28),transparent 52%);
+  -webkit-mask:linear-gradient(#000,#000) content-box,linear-gradient(#000,#000);
+  -webkit-mask-composite:xor;mask-composite:exclude;padding:1px}
 .brandmark .wm{font-size:17px;font-weight:800;letter-spacing:-.045em;
   background:linear-gradient(92deg,#fff 30%,var(--acc-hi));
   -webkit-background-clip:text;background-clip:text;color:transparent}
@@ -221,6 +226,8 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 @keyframes halo{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.13);opacity:0}}
 @media (prefers-reduced-motion:reduce){#nav .tab-scan .fab::before{animation:none;opacity:.5}}
 #nav .tab-scan:active .fab{transform:scale(.9)}
+#nav .tab-scan.active .fab{box-shadow:0 8px 30px -2px var(--glow-1),0 0 0 3px rgba(168,85,247,.22)}
+#nav .tab-scan.active .tl{color:var(--acc-hi)}
 #nav .tab-scan .fab svg{width:25px;height:25px;stroke:#fff;stroke-width:2.2}
 #nav .tab-scan .tl{color:var(--mut);margin-top:1px}
 
@@ -264,8 +271,8 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .hero-art{display:none}
 
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:15px 16px}
-.stat .sv{font-size:25px;font-weight:800;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 16px}
+.stat .sv{font-size:29px;font-weight:800;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
 .stat .sl{font-size:11.5px;color:var(--dim);margin-top:3px;font-weight:600;
           letter-spacing:.045em;text-transform:uppercase}
 
@@ -387,6 +394,24 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   font-variant-numeric:tabular-nums;background:var(--acc-dim);border-radius:99px;padding:6px 11px}
 .raise .rt{font-size:14px;font-weight:650;flex:1}
 .raise .rs{font-size:12px;color:var(--mut);margin-top:2px;line-height:1.45}
+
+/* ── profile hero ────────────────────────────────────────────────────────
+   The identity block was a 64px square in a small card, which made the
+   account the least prominent thing on the account screen. It now leads at
+   the scale of a page header. */
+.prof-hero{position:relative;overflow:hidden;text-align:center;padding:38px 22px 30px;
+  border-radius:var(--r-xl);border:1px solid rgba(168,85,247,.24);
+  background:linear-gradient(165deg,rgba(168,85,247,.14),var(--card) 62%);
+  box-shadow:0 20px 56px -30px var(--glow-1);margin-bottom:16px}
+.prof-hero::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(80% 62% at 50% 0%,var(--glow-2),transparent 70%)}
+.prof-hero>*{position:relative}
+.prof-av{width:108px;height:108px;border-radius:38px;margin:0 auto 18px;display:grid;
+  place-items:center;font-size:44px;font-weight:800;color:#fff;letter-spacing:-.04em;
+  background:var(--acc-grad);box-shadow:0 16px 40px -12px var(--glow-1)}
+.prof-em{font-size:23px;font-weight:800;letter-spacing:-.04em;line-height:1.2;
+  overflow-wrap:anywhere}
+.prof-since{font-size:14px;color:var(--mut);margin-top:7px}
 
 /* ── results hero ────────────────────────────────────────────────────────
    The photo is the item. It used to be a 62px thumbnail beside the name,
@@ -549,8 +574,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     background:var(--acc-grad);display:grid;place-items:center;flex-shrink:0;isolation:isolate}
   #side .brand .mk::after{content:'';position:absolute;inset:0;border-radius:inherit;
     background:inherit;filter:blur(11px);opacity:.6;z-index:-1}
-  #side .brand .mk svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2.6;
-    stroke-linecap:round;stroke-linejoin:round}
+  #side .brand .mk svg{width:20px;height:20px;fill:#fff;stroke:none}
   #side .snav{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:13px;
     font-size:14.5px;font-weight:600;color:var(--mut);transition:background .18s,color .18s}
   #side .snav:hover{background:var(--card);color:var(--fg)}
@@ -618,7 +642,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <!-- ══════════════════════ desktop sidebar ══════════════════════ -->
 <aside id="side">
   <div class="brand">
-    <span class="mk"><svg viewBox="0 0 24 24"><path d="M8.6 20.4V8.2A3.2 3.2 0 0111.8 5H18"/><path d="M8.6 13.1h6.9"/></svg></span>
+    <span class="mk"><svg viewBox="0 0 24 24"><g transform="skewX(-7) translate(1.6 0)"><rect x="6.9" y="4.6" width="3.3" height="14.8" rx="1.65"/><rect x="6.9" y="4.6" width="10.6" height="3.3" rx="1.65"/><rect x="6.9" y="10.5" width="7.4" height="3.3" rx="1.65"/></g></svg></span>
     Fliparo
   </div>
   <a class="snav on" data-snav="home" onclick="tabTo('home')">
@@ -688,7 +712,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 </section>
 
 <!-- ══════════════════════ SCAN ══════════════════════ -->
-<section class="screen scrolls" id="s-scan">
+<section class="screen scrolls has-nav" id="s-scan">
 
   <div class="page-head">
     <h1>What are we<br>flipping?</h1>
@@ -1114,7 +1138,11 @@ function navItems() {
   items.push({ id:'profile', label:'Profile', icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>' });
   return items;
 }
-const TAB_SCREENS = ['home','inventory','plan','profile'];
+/* Screens that keep the bottom nav. 'scan' is included deliberately: taking
+   photos is a destination, not a modal, and hiding Home/Plan/Profile the
+   moment someone taps New scan strands them with no way out but the back
+   chevron. */
+const TAB_SCREENS = ['home','inventory','plan','profile','scan'];
 
 /* ═══════════════════════════════ APP BAR ═══════════════════════════════
    Every screen declares what its header holds. Top-level screens show the
@@ -1167,7 +1195,7 @@ function renderAppbar(id) {
     ? iconBtn(cfg.backIcon || 'back', typeof cfg.back === 'string' ? cfg.back : 'back()', 'Back')
     : cfg.brand
       ? `<span class="brandmark"><span class="mk"><svg viewBox="0 0 24 24" fill="none"
-           stroke-linecap="round" stroke-linejoin="round"><path d="M8.6 20.4V8.2A3.2 3.2 0 0111.8 5H18"/><path d="M8.6 13.1h6.9"/></svg></span>
+           stroke-linecap="round" stroke-linejoin="round"><g transform="skewX(-7) translate(1.6 0)"><rect x="6.9" y="4.6" width="3.3" height="14.8" rx="1.65"/><rect x="6.9" y="4.6" width="10.6" height="3.3" rx="1.65"/><rect x="6.9" y="10.5" width="7.4" height="3.3" rx="1.65"/></g></svg></span>
          <span class="wm">Fliparo</span></span>`
       : '';
 
@@ -1215,6 +1243,7 @@ function renderNav() {
 
 function syncNavActive(id) {
   document.querySelectorAll('#nav .tab').forEach(t => t.classList.toggle('on', t.dataset.tab === id));
+  document.querySelector('#nav .tab-scan')?.classList.toggle('active', id === 'scan');
   document.querySelectorAll('#side .snav').forEach(t => t.classList.toggle('on', t.dataset.snav === id));
 }
 
@@ -2172,19 +2201,17 @@ function renderProfile() {
   const planName = (me.planName || me.plan || 'Free').replace(/^./, c => c.toUpperCase());
 
   document.getElementById('profBody').innerHTML = `
-    <div class="card" style="text-align:center;padding:26px 20px;margin-bottom:14px">
-      <div style="width:64px;height:64px;border-radius:22px;background:var(--acc);margin:0 auto 14px;
-                  display:grid;place-items:center;font-size:25px;font-weight:800;color:var(--acc-ink)">
-        ${me.signedIn ? esc((me.email || '?')[0].toUpperCase()) : '?'}</div>
-      <div style="font-size:17px;font-weight:750;letter-spacing:-.03em">${me.signedIn ? esc(me.email) : 'Not signed in'}</div>
-      <div style="font-size:13px;color:var(--mut);margin-top:4px">
-        ${joined ? 'Flipping since ' + new Date(joined).toLocaleDateString('en-US',{month:'long',year:'numeric'}) : 'Welcome'}</div>
-      <div style="margin-top:14px"><span class="badge ${me.plan === 'free' ? 'locked' : 'pro'}"
-        style="font-size:11px;padding:5px 11px">${planName} plan</span></div>
-      ${me.signedIn ? '' : `<button class="btn btn-acc btn-sm" style="margin:16px auto 0" onclick="requireAccount()">Sign in</button>`}
+    <div class="prof-hero">
+      <div class="prof-av">${me.signedIn ? esc((me.email || '?')[0].toUpperCase()) : '?'}</div>
+      <div class="prof-em">${me.signedIn ? esc(me.email) : 'Not signed in'}</div>
+      <div class="prof-since">
+        ${joined ? 'Flipping since ' + new Date(joined).toLocaleDateString('en-US',{month:'long',year:'numeric'}) : 'Welcome to Fliparo'}</div>
+      <div style="margin-top:16px"><span class="badge ${me.plan === 'free' ? 'locked' : 'pro'}"
+        style="font-size:12px;padding:7px 15px;border-radius:99px">${planName} plan</span></div>
+      ${me.signedIn ? '' : `<button class="btn btn-acc" style="margin:20px auto 0;max-width:230px" onclick="requireAccount()">Sign in</button>`}
     </div>
 
-    ${inventory.length ? `<div class="stats" style="margin-bottom:14px">
+    ${inventory.length ? `<div class="stats" style="margin-bottom:14px;gap:11px">
       <div class="stat"><div class="sv">${inventory.length}</div><div class="sl">Scans</div></div>
       <div class="stat"><div class="sv">${money(total)}</div><div class="sl">Est. value</div></div>
       <div class="stat"><div class="sv">${inventory.filter(i => i.status !== 'draft').length}</div><div class="sl">Listed</div></div>
