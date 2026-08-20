@@ -52,8 +52,17 @@ STRIPE_PRICE_PRO=
 # Builds Stripe checkout return URLs. Must match the host users actually reach.
 PUBLIC_URL=http://localhost:8080
 
+# ── Listing photos ──────────────────────────────────────────────────────────
+# Scan photos are base64 in the browser; eBay needs public URLs it can fetch.
+# They are stored in Postgres when DATABASE_URL is set, otherwise on disk in
+# IMAGE_DIR. PUBLIC_URL must be a real public host or eBay cannot reach them.
+IMAGE_DIR=
+
 # ── eBay. sandbox until you are ready for real listings. ────────────────────
 EBAY_ENV=sandbox
+
+# Used only when eBay's category suggestion returns nothing.
+EBAY_FALLBACK_CATEGORY_ID=175759
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_REDIRECT_URI_NAME=
