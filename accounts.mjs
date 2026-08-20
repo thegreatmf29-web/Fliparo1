@@ -35,8 +35,8 @@ export const PLANS = {
     features: [
       '1 scan per month',
       'Full valuation and condition report',
-      'Listings written for every marketplace',
-      'Copy and paste them in yourself'
+      'A finished eBay listing, written for you',
+      'Paste it in yourself'
     ]
   },
   starter: {
@@ -44,6 +44,7 @@ export const PLANS = {
     name: 'Starter',
     price: 3.99,
     priceLabel: '$3.99',
+    priceYear: 39.99,
     scans: 10,
     autoList: true,
     popular: true,
@@ -61,6 +62,7 @@ export const PLANS = {
     name: 'Pro',
     price: 9.99,
     priceLabel: '$9.99',
+    priceYear: 99.99,
     scans: 100,
     autoList: true,
     blurb: 'For people doing this for real.',
@@ -107,7 +109,20 @@ const SECRET = process.env.SESSION_SECRET
 
 const STRIPE_SECRET  = process.env.STRIPE_SECRET_KEY || '';
 const STRIPE_WEBHOOK = process.env.STRIPE_WEBHOOK_SECRET || '';
-const PRICE_IDS = { starter: process.env.STRIPE_PRICE_STARTER || '', pro: process.env.STRIPE_PRICE_PRO || '' };
+/* Annual is a second price on the same plan, not a separate plan. Keeping the
+   entitlement ('starter') separate from what was bought ('starter_year') means
+   quota, autoList and every gate stay untouched — the only thing that differs
+   is the billing interval. A yearly checkout that mapped to its own plan id
+   would need every one of those rules duplicated. */
+const PRICE_IDS = {
+  starter:      process.env.STRIPE_PRICE_STARTER      || '',
+  pro:          process.env.STRIPE_PRICE_PRO          || '',
+  starter_year: process.env.STRIPE_PRICE_STARTER_YEAR || '',
+  pro_year:     process.env.STRIPE_PRICE_PRO_YEAR     || ''
+};
+
+/* 'starter_year' → 'starter'. Used for entitlement everywhere downstream. */
+const basePlan = id => String(id || '').replace(/_year$/, '');
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -436,8 +451,8 @@ export async function createCheckout(req, res) {
       allow_promotion_codes: 'true',
       success_url: `${base}/?billing=success`,
       cancel_url: `${base}/?billing=cancelled`,
-      subscription_data: { metadata: { email: user.email, plan: planId } },
-      metadata: { email: user.email, plan: planId }
+      subscription_data: { metadata: { email: user.email, plan: basePlan(planId) } },
+      metadata: { email: user.email, plan: basePlan(planId) }
     });
 
     res.json({ url: session.url });
@@ -481,8 +496,12 @@ export function verifyWebhook(rawBody, sigHeader) {
   catch { return { ok: false, reason: 'body was not JSON' }; }
 }
 
-const planFromPriceId = id =>
-  id === PRICE_IDS.pro ? 'pro' : id === PRICE_IDS.starter ? 'starter' : null;
+const planFromPriceId = id => {
+  for (const [key, price] of Object.entries(PRICE_IDS)) {
+    if (price && id === price) return basePlan(key);
+  }
+  return null;
+};
 
 export async function handleWebhookEvent(event) {
   const obj = event?.data?.object || {};
@@ -545,8 +564,13 @@ export function plansPayload() {
     plans: Object.values(PLANS).map(p => ({
       id: p.id, name: p.name, price: p.price, priceLabel: p.priceLabel,
       scans: p.scans, autoList: p.autoList, blurb: p.blurb,
-      features: p.features, popular: !!p.popular
+      features: p.features, popular: !!p.popular,
+      /* Only advertise an annual option once its Stripe price actually exists,
+         so the toggle can never offer a checkout that would 400. */
+      yearPrice: p.priceYear || null,
+      yearAvailable: !!PRICE_IDS[`${p.id}_year`]
     })),
+    yearlyConfigured: !!(PRICE_IDS.starter_year || PRICE_IDS.pro_year),
     billingConfigured: billingConfigured(),
     mailConfigured: mailConfigured()
   };
