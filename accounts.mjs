@@ -374,6 +374,73 @@ export function publicUser(u) {
   };
 }
 
+/* ═══════════════════════════ Sign in with Google ═════════════════════════
+   Google Identity Services hands the browser a signed ID token (a JWT). The
+   browser posts it here; this exchanges it for one of our own session tokens.
+
+   The token is verified by asking Google, rather than by parsing it here.
+   Verifying a JWT properly means fetching Google's JWKS, matching the key id,
+   checking the RS256 signature, the issuer, the audience and the expiry — and
+   getting any one of those wrong produces a login that works perfectly and is
+   trivially forgeable. One HTTPS call to Google's own endpoint has none of
+   that surface, needs no dependency, and at this scale costs nothing.
+
+   Two checks matter and are done explicitly:
+     aud            — the token must have been minted for OUR client id, or
+                      anyone could sign in with a Google token issued to any
+                      other site in the world.
+     email_verified — Google accounts can hold unverified addresses; without
+                      this, someone could claim an email they do not own and
+                      collide with a real user's account.
+   ========================================================================= */
+const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
+export const googleConfigured = () => !!GOOGLE_CLIENT_ID;
+
+export async function googleAuth(req, res) {
+  if (!googleConfigured()) {
+    return res.status(400).json({ error: 'Google sign-in is not configured on this server.' });
+  }
+  const credential = String(req.body?.credential || '').trim();
+  if (!credential) return res.status(400).json({ error: 'Missing Google credential.' });
+
+  let info;
+  try {
+    const r = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(credential));
+    info = await r.json();
+    if (!r.ok) throw new Error(info?.error_description || 'Google rejected the token.');
+  } catch (e) {
+    console.error('google verify:', e.message);
+    return res.status(400).json({ error: 'Could not verify that Google sign-in. Try again.' });
+  }
+
+  if (info.aud !== GOOGLE_CLIENT_ID) {
+    console.error('google verify: aud mismatch', info.aud);
+    return res.status(401).json({ error: 'That Google sign-in was not issued for this app.' });
+  }
+  if (info.email_verified !== true && info.email_verified !== 'true') {
+    return res.status(401).json({ error: 'That Google account has no verified email address.' });
+  }
+
+  const email = String(info.email || '').toLowerCase().trim();
+  if (!EMAIL_RE.test(email)) return res.status(400).json({ error: 'Google returned no usable email address.' });
+
+  /* Same account either way. Someone who signed up with a code and later uses
+     Google lands on the record they already have — the email is the identity,
+     and the sign-in method is just how they proved it. */
+  let user = await store.getUser(email);
+  if (!user) {
+    user = {
+      email, createdAt: Date.now(), plan: 'free',
+      stripeCustomer: null, stripeSub: null,
+      periodStart: Date.now(), scansUsed: 0, listingsUsed: 0,
+      tokens: [], ebay: null
+    };
+    await store.putUser(user);
+  }
+
+  res.json({ token: issueToken(email), user: publicUser(user) });
+}
+
 export async function me(req, res) {
   const u = await currentUser(req);
   if (!u) {
