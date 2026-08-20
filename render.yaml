@@ -61,6 +61,12 @@ services:
       - key: GMAIL_APP_PASSWORD
         sync: false
 
+      # Emails that scan without limit. Comma-separated, case-insensitive,
+      # checked against the verified sign-in email rather than stored on the
+      # user record — so it cannot be granted by tampering with a row.
+      - key: OWNER_EMAILS
+        sync: false
+
       # ── billing ──────────────────────────────────────────────────────────
       - key: STRIPE_SECRET_KEY
         sync: false
