@@ -37,6 +37,14 @@ MAIL_FROM=Fliparo <verification@fliparo.net>
 GMAIL_USER=
 GMAIL_APP_PASSWORD=
 
+# ── Sign in with Google ─────────────────────────────────────────────────────
+# OAuth 2.0 Web application client ID from console.cloud.google.com.
+# Not a secret — it ships in the page. Leave blank and the button never
+# renders and the Google script is never loaded.
+# Authorised JavaScript origin must be your exact site origin, e.g.
+#   https://fliparo.net
+GOOGLE_CLIENT_ID=
+
 # ── Owner accounts ──────────────────────────────────────────────────────────
 # Comma-separated emails that scan without limit and skip rate limiting.
 # Matched case-insensitively against the verified sign-in email, so it cannot
