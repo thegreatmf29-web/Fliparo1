@@ -71,6 +71,20 @@ body::before{
 }
 @media (prefers-reduced-motion:reduce){body::before{animation:none}}
 
+/* A single layer of very fine noise over the whole app. Flat dark UIs band
+   badly on large gradients — visible stepping across the hero and the ambient
+   bloom. A little grain dithers those steps away and gives the surface some
+   tooth. Kept under 4% opacity: felt, not seen. */
+body::after{
+  content:'';position:fixed;inset:0;z-index:999;pointer-events:none;opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Keyboard users could not tell where they were: there was no focus style
+   anywhere in the app. :focus-visible only paints for keyboard navigation, so
+   this never appears on a tap or a click. */
+:focus-visible{outline:2px solid var(--acc-hi);outline-offset:3px;border-radius:6px}
+
 /* ─────────────────────────── app shell ─────────────────────────── */
 #app{position:relative;height:100%;z-index:1}
 .screen{
@@ -130,13 +144,20 @@ body::before{
 .screen.scrolls>*{flex-shrink:0}
 .screen.has-nav{padding-bottom:calc(var(--nav-h) + 26px)}
 @keyframes in{from{opacity:0;transform:translateY(9px) scale(.995)}to{opacity:1;transform:none}}
+/* Sections arrive rather than being already there. One observer, transform and
+   opacity only, and it unobserves after firing so nothing keeps running. */
+.reveal{opacity:0;transform:translateY(22px);
+  transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+
 .rise{animation:rise .5s var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 
 /* ─────────────────────────── typography ─────────────────────────── */
 h1{font-size:clamp(28px,7vw,40px);font-weight:800;letter-spacing:-.045em;line-height:1.06}
 h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
-       color:var(--dim);margin:30px 0 13px}
+       color:var(--dim);margin:46px 0 18px}
 .eyebrow{font-size:11.5px;font-weight:750;letter-spacing:.13em;text-transform:uppercase;color:var(--acc)}
 .sub{font-size:15px;line-height:1.6;color:var(--mut)}
 .num{font-variant-numeric:tabular-nums;letter-spacing:-.05em;font-weight:800}
@@ -195,10 +216,14 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
   background:linear-gradient(92deg,#fff 30%,var(--acc-hi));
   -webkit-background-clip:text;background-clip:text;color:transparent}
 
-/* large title, sitting in the content below the bar */
-.page-head{padding:6px 0 18px}
-.page-head .eyebrow{display:block;margin-bottom:7px}
-.page-head h1{font-size:clamp(30px,8vw,38px);font-weight:800;letter-spacing:-.048em;line-height:1.05}
+/* Large title. The whole screen is built around this having room: an app that
+   opens on a dense grid feels like work, and one that opens on a single clear
+   statement feels like a tool you are about to use. Everything below it is
+   spaced to match rather than packed to fit. */
+.page-head{padding:26px 0 30px}
+.page-head .eyebrow{display:block;margin-bottom:13px}
+.page-head h1{font-size:clamp(34px,9.4vw,46px);font-weight:800;letter-spacing:-.05em;line-height:1.02}
+#s-home .page-head{padding:38px 0 34px}
 .page-head .lead{font-size:15.5px;line-height:1.55;color:var(--mut);margin-top:9px;max-width:38ch}
 
 /* kept for the few inline headers that are not page-level */
@@ -208,6 +233,16 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .icon-btn{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;
           background:var(--card);border:1px solid var(--line);flex-shrink:0;
           transition:transform .18s var(--ease),background .18s}
+/* The profile entry is how anyone reaches their plan, their account and their
+   marketplace connections — it was the same weight as a back chevron. Larger,
+   ringed in the accent, and glowing just enough to be found without competing
+   with the primary action on the screen. */
+.icon-btn.avatar{width:44px;height:44px;
+  background:linear-gradient(150deg,rgba(168,85,247,.30),var(--card) 68%);
+  border-color:rgba(168,85,247,.45);
+  box-shadow:0 0 0 1px rgba(168,85,247,.12),0 6px 18px -8px var(--glow-1)}
+.icon-btn.avatar svg{width:21px;height:21px;stroke:var(--acc-hi);stroke-width:2.1}
+@media (hover:none){.icon-btn.avatar{width:46px;height:46px}}
 .icon-btn:active{transform:scale(.92);background:var(--card2)}
 .icon-btn svg{width:17px;height:17px;stroke:var(--fg);fill:none;stroke-width:2;
               stroke-linecap:round;stroke-linejoin:round}
@@ -317,8 +352,10 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 }
 
 /* ─────────────────────────── quota meter ─────────────────────────── */
-.quota{display:flex;align-items:center;gap:11px;padding:13px 16px;border-radius:var(--r);
-       background:var(--card);border:1px solid var(--line);margin-bottom:16px}
+/* The quota row is status, not content — it should register and get out of
+   the way, not sit in a box competing with the headline above it. */
+.quota{display:flex;align-items:center;gap:11px;padding:12px 4px;border-radius:0;
+       background:none;border:0;border-bottom:1px solid var(--line);margin-bottom:30px}
 .quota .qbar{flex:1;height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden}
 .quota .qfill{height:100%;border-radius:3px;background:var(--acc);transition:width .7s var(--ease)}
 .quota .qtxt{font-size:12.5px;color:var(--mut);white-space:nowrap;font-weight:600}
@@ -339,24 +376,39 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
   font-size:13.5px;font-weight:700;letter-spacing:-.02em}
 .tile .cap .s{display:block;font-size:11px;font-weight:600;color:rgba(255,255,255,.62);margin-top:2px}
 
-.rail{display:flex;gap:11px;overflow-x:auto;margin:0 -20px;padding:2px 20px 4px;scroll-snap-type:x mandatory}
+.rail{display:flex;gap:13px;overflow-x:auto;margin:0 -20px;padding:2px 20px 6px;scroll-snap-type:x mandatory}
 .rail>*{scroll-snap-align:start;flex-shrink:0}
 .rail .tile{width:132px;height:158px}
 
 /* ─────────────────────────── home ─────────────────────────── */
 .hero-scan{
-  position:relative;border-radius:var(--r-xl);overflow:hidden;padding:26px 22px 22px;
+  position:relative;border-radius:var(--r-xl);overflow:hidden;padding:38px 26px 32px;
   background:linear-gradient(155deg,#1B1030,#101218 64%);border:1px solid rgba(168,85,247,.26);
 }
-.hero-scan::before{content:'';position:absolute;inset:0;
-  background:radial-gradient(70% 90% at 82% 6%,rgba(168,85,247,.30),transparent 62%)}
+.hero-scan::before{content:'';position:absolute;inset:-40%;
+  background:
+    radial-gradient(38% 44% at 78% 12%,rgba(192,132,252,.40),transparent 62%),
+    radial-gradient(34% 40% at 24% 84%,rgba(109,40,217,.34),transparent 64%);
+  animation:heroDrift 22s ease-in-out infinite}
+@keyframes heroDrift{
+  0%,100%{transform:translate3d(0,0,0) rotate(0deg)}
+  50%    {transform:translate3d(4%,-3%,0) rotate(8deg)}
+}
+@media (prefers-reduced-motion:reduce){.hero-scan::before{animation:none}}
+/* A lit top edge, so the card reads as a surface catching light rather than a
+   flat rectangle with a gradient painted on it. */
+.hero-scan::after{content:'';position:absolute;left:12%;right:12%;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(216,180,254,.55),transparent)}
 .hero-scan>*{position:relative}
-.hero-scan .hl{font-size:clamp(24px,6.4vw,32px);font-weight:800;letter-spacing:-.045em;line-height:1.1;margin:12px 0 8px}
-.hero-scan .hs{font-size:14.5px;color:var(--mut);line-height:1.55;margin-bottom:20px;max-width:34ch}
+.hero-scan .hl{font-size:clamp(27px,7.2vw,35px);font-weight:800;letter-spacing:-.048em;line-height:1.08;margin:16px 0 12px}
+.hero-scan .hs{font-size:14.5px;color:var(--mut);line-height:1.62;margin-bottom:28px;max-width:32ch}
 .hero-art{display:none}
 
-.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
-.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px 16px}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.stat{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r-lg);padding:18px 16px}
+.stat::before{content:'';position:absolute;left:0;right:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.14),transparent)}
 .stat .sv{font-size:29px;font-weight:800;letter-spacing:-.05em;font-variant-numeric:tabular-nums}
 .stat .sl{font-size:11.5px;color:var(--dim);margin-top:3px;font-weight:600;
           letter-spacing:.045em;text-transform:uppercase}
@@ -427,6 +479,11 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 
 /* ─────────────────────────── score ring ─────────────────────────── */
 .ring-wrap{position:relative;width:190px;height:190px;margin:0 auto}
+/* A bloom behind the ring in the tier colour, so the score reads as the light
+   source of the card rather than a graphic sitting on it. */
+.ring-wrap::before{content:'';position:absolute;inset:12%;border-radius:50%;
+  background:radial-gradient(circle,var(--tc,var(--acc)),transparent 68%);
+  opacity:.20;filter:blur(20px)}
 .ring-wrap svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring-bg{fill:none;stroke:rgba(255,255,255,.08);stroke-width:12}
 .ring-fg{fill:none;stroke:var(--acc);stroke-width:13;stroke-linecap:round;
@@ -518,6 +575,33 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .hero-photo .hn{font-size:21px;font-weight:800;letter-spacing:-.04em;line-height:1.18}
 .hero-photo .hb{font-size:13px;color:rgba(255,255,255,.66);margin-top:4px;font-weight:600}
 .hero-photo .htier{position:absolute;top:14px;right:14px}
+
+/* ── sticky results action ────────────────────────────────────────────────
+   The report is long — photo, ring, price, four gauges, potential, condition.
+   The one thing a user came to do lived at the bottom of all of it. This
+   pins it to the base of the viewport for the whole screen instead.
+
+   It is a fixed bar, not a sticky child, because the results screen is the
+   scroll container: `position:sticky` inside it would stick to the container
+   rather than the viewport and drift on iOS during momentum scroll.
+
+   The gradient above it keeps content legible as it passes underneath rather
+   than having it collide with a hard edge. */
+#resDock{
+  position:fixed;left:0;right:0;bottom:0;z-index:60;
+  padding:26px 20px calc(14px + var(--safe-b));
+  background:linear-gradient(transparent,rgba(8,9,11,.86) 34%,var(--bg) 76%);
+  transform:translateY(115%);transition:transform .38s var(--ease);
+  pointer-events:none;
+}
+#resDock.show{transform:none;pointer-events:auto}
+#resDock .btn{max-width:520px;margin:0 auto}
+/* Clears the dock so the last card is never trapped behind it. */
+#s-results.has-dock{padding-bottom:calc(96px + var(--safe-b))}
+@media (min-width:900px){
+  #resDock{left:248px;padding-bottom:22px}
+  #s-results.has-dock{padding-bottom:110px}
+}
 
 /* The upsell sits where the value is, not on a tab the user has to find. */
 .sell-note{margin-top:22px;padding:18px 20px;border-radius:var(--r-lg);
@@ -777,7 +861,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>Profile</a>
   <button class="sscan" onclick="startScan()">
     <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
-    New scan
+    Take a photo
   </button>
   <div class="spacer"></div>
   <div class="squota" id="sideQuota"></div>
@@ -791,20 +875,20 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <section class="screen scrolls has-nav active" id="s-home">
 
   <div class="page-head">
-    <span class="eyebrow" id="homeGreet">Good evening</span>
-    <h1>Ready when<br>you are</h1>
+    <span class="eyebrow" id="homeGreet"></span>
+    <h1 id="homeHead"></h1>
   </div>
 
   <div id="homeQuota"></div>
 
   <div class="hero-scan rise">
     <div class="hero-copy">
-      <div class="eyebrow">Scan an item</div>
+      <div class="eyebrow">Take a photo</div>
       <div class="hl">What's it<br>actually worth?</div>
       <div class="hs">Photograph anything. You get a real valuation from sold comps, an honest condition grade, and a finished eBay listing.</div>
       <button class="btn btn-acc" onclick="startScan()">
         <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
-        Start scanning
+        Take a photo
       </button>
       <button class="btn btn-ghost btn-sm" id="heroExample" style="margin-top:10px;width:auto"
         onclick="showExample()">See an example report</button>
@@ -817,7 +901,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   <div id="homeStatsWrap" style="display:none">
     <h2 class="sec">Your numbers</h2>
     <div class="stats">
-      <div class="stat"><div class="sv" id="stScans">0</div><div class="sl">Scans</div></div>
+      <div class="stat"><div class="sv" id="stScans">0</div><div class="sl">Items</div></div>
       <div class="stat"><div class="sv" id="stValue">$0</div><div class="sl">Est. value</div></div>
       <div class="stat"><div class="sv" id="stListed">0</div><div class="sl">Listed</div></div>
       <div class="stat"><div class="sv" id="stBest">—</div><div class="sl">Best find</div></div>
@@ -996,7 +1080,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   <p class="sub" id="successMsg" style="max-width:32ch;margin-bottom:26px"></p>
   <div id="successLinks" style="width:100%;max-width:340px"></div>
   <div style="width:100%;max-width:340px;margin-top:10px">
-    <button class="btn btn-acc" onclick="startScan()">Scan another item</button>
+    <button class="btn btn-acc" onclick="startScan()">Photograph another</button>
     <button class="btn btn-ghost" style="margin-top:10px" onclick="tabTo('home')">Back home</button>
   </div>
 </section>
@@ -1005,8 +1089,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <section class="screen scrolls has-nav" id="s-plan">
   <div class="page-head">
     <span class="eyebrow">Plans</span>
-    <h1>Scan more.<br>List instantly.</h1>
-    <p class="lead">Cancel any time. One flip usually covers a year of this.</p>
+    <h1>Price more.<br>List instantly.</h1>
+    <p class="lead">Cancel any time. The numbers below are what a single flip covers.</p>
   </div>
   <div class="err" id="planErr"></div>
   <div id="planCycle"></div>
@@ -1020,7 +1104,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   <div style="max-width:400px;width:100%;margin:0 auto">
     <div id="authStep1">
       <div class="page-head">
-        <h1>Save your<br>scans</h1>
+        <h1>Save your<br>finds</h1>
         <p class="lead">No password. We email you a six-digit code. That's the whole process.</p>
       </div>
       <div class="err" id="authErr"></div>
@@ -1037,7 +1121,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
       </div>
       <button class="btn btn-acc" onclick="requestCode()" id="authBtn">Send me a code</button>
       <p style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:16px;text-align:center">
-        We use your email to keep your plan and scans attached to you. Nothing else, ever.</p>
+        We use your email to keep your plan and your finds attached to you. Nothing else, ever.</p>
     </div>
 
     <div id="authStep2" style="display:none">
@@ -1096,6 +1180,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <!-- ══════════════════════ bottom nav ══════════════════════ -->
 <nav id="nav"></nav>
 
+<div id="resDock"></div>
 <div id="sheetBg" onclick="closeSheet()"></div>
 <div id="sheet"><div class="grab"></div><div id="sheetBody"></div></div>
 <div id="toast"></div>
@@ -1130,6 +1215,7 @@ let selectedPlatforms = ['ebay'];
 let strategy = store('strategy') || 'market';
 let tone = store('tone') || 'clean';
 let inventory = store('inventory') || [];
+let homeLine = null;
 let viewingItem = null, invFilter = 'all', navStack = [], scanTimers = [];
 let token = store('token') || null;
 let me = { signedIn: false, plan: 'free', scansUsed: 0, scansLimit: 1, scansLeft: 1, unlimited: false, autoList: false };
@@ -1310,7 +1396,7 @@ function navItems() {
 }
 /* Screens that keep the bottom nav. 'scan' is included deliberately: taking
    photos is a destination, not a modal, and hiding Home/Plan/Profile the
-   moment someone taps New scan strands them with no way out but the back
+   moment someone taps Take a photo strands them with no way out but the back
    chevron. */
 const TAB_SCREENS = ['home','inventory','plan','profile','scan'];
 
@@ -1336,7 +1422,7 @@ const BAR = {
   inventory: { title:'Inventory',  brand:true },
   plan:      { title:'Plans',      brand:true },
   profile:   { title:'Profile',    brand:true,  right:[['gear','go(\'settings\')','Settings']] },
-  scan:      { title:'New scan',   back:true },
+  scan:      { title:'New photo',  back:true },
   results:   { title:'Analysis',   back:'tabTo(\'home\')', backIcon:'close', pin:true,
                right:[['share','shareResult()','Share']] },
   condition: { title:'Condition report', back:true },
@@ -1352,7 +1438,7 @@ const BAR = {
 };
 
 const iconBtn = (name, action, label) =>
-  `<button class="icon-btn" onclick="${action}" aria-label="${label}">
+  `<button class="icon-btn${name === 'user' ? ' avatar' : ''}" onclick="${action}" aria-label="${label}">
      <svg viewBox="0 0 24 24">${ICON[name]}</svg></button>`;
 
 function renderAppbar(id) {
@@ -1403,7 +1489,7 @@ function renderNav() {
   document.getElementById('nav').innerHTML = navItems().map(t => t.scan
     ? `<button class="tab tab-scan" onclick="startScan()">
          <span class="fab"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg></span>
-         <span class="tl">Scan</span></button>`
+         <span class="tl">Photo</span></button>`
     : `<button class="tab" data-tab="${t.id}" onclick="tabTo('${t.id}')">
          <svg viewBox="0 0 24 24">${t.icon}</svg><span class="tl">${t.label}</span></button>`
   ).join('');
@@ -1417,9 +1503,17 @@ function syncNavActive(id) {
   document.querySelectorAll('#side .snav').forEach(t => t.classList.toggle('on', t.dataset.snav === id));
 }
 
+/* Screens that are meaningless without an item behind them. Reached with no
+   item — a stale history entry, a hardware back after the state was cleared —
+   they used to render as a bare header over an empty black page, which reads
+   as a crash. */
+const NEEDS_ITEM = ['results', 'condition', 'listing', 'publishing', 'success'];
+
 function go(id, opts = {}) {
   const target = document.getElementById('s-' + id);
   if (!target) return;
+  if (NEEDS_ITEM.includes(id) && !current) return tabTo('home');
+  if (id === 'item' && !viewingItem) return tabTo(inventoryUnlocked() ? 'inventory' : 'home');
   const cur = document.querySelector('.screen.active');
 
   /* Only move screens if we are actually changing screens — but ALWAYS sync
@@ -1459,11 +1553,13 @@ function go(id, opts = {}) {
     target.scrollTop = 0;
   }
 
+  if (id !== 'results') clearDock();
   document.getElementById('nav').classList.toggle('show', TAB_SCREENS.includes(id));
   syncNavActive(id);
   renderAppbar(id);
 
   if (id === 'home')      renderHome();
+  if (id === 'home' || id === 'inventory' || id === 'plan') requestAnimationFrame(() => armReveals(id));
   if (id === 'inventory') renderInventory();
   if (id === 'profile')   renderProfile();
   if (id === 'settings')  renderSettings();
@@ -1559,14 +1655,15 @@ async function refreshMe() {
 function renderQuota() {
   const pct = me.unlimited ? 100 : (me.scansLimit ? Math.min(100, (me.scansUsed / me.scansLimit) * 100) : 0);
   const planName = (me.planName || (me.plan || 'free')).replace(/^./, c => c.toUpperCase());
-  const left = me.unlimited ? 'Unlimited scans' : `${me.scansLeft} of ${me.scansLimit} scans left`;
+  const left = me.unlimited ? 'Unlimited items'
+    : `${me.scansLeft} of ${me.scansLimit} item${me.scansLimit === 1 ? '' : 's'} left`;
   /* On the free plan this row read "1 of 1 scans left" beside an empty bar —
      a status line about a limit. Once there is inventory, the more useful
      number is what the scans have found, which grows instead of shrinking. */
   const worth = inventory.reduce((a, i) => a + (i.price || 0), 0);
   const showWorth = inventory.length >= 2 && worth > 0;
   const html = `<div class="quota">
-    <span class="qtxt">${showWorth ? `${money(worth)} found across ${inventory.length} scans` : left}</span>
+    <span class="qtxt">${showWorth ? `${money(worth)} found across ${inventory.length} items` : left}</span>
     <span class="qbar"><span class="qfill" style="width:${pct}%;
       background:${!me.unlimited && me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'}"></span></span>
     ${me.unlimited || me.plan === 'pro' ? `<span class="qtxt">${planName}</span>`
@@ -1652,6 +1749,9 @@ async function submitCode() {
 
 function signOut() {
   token = null; store('token', null);
+  /* Leaving this behind produced "Not signed in" sitting directly above
+     "Flipping since May 2026" on the profile screen. */
+  store('joined', null);
   me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:1, scansLeft:1, unlimited:false, autoList:false };
   renderNav(); renderQuota();
   toast('Signed out');
@@ -1762,7 +1862,7 @@ function showPaywall(kind) {
       <h3>List it automatically for ${esc(starter.priceLabel)}/mo</h3>
       <p>You've got the valuation. Starter publishes it straight to eBay — title, description, condition, photos, price — without you touching a form.</p>
       <div class="card tight" style="margin-bottom:16px">
-        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 scans a month</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 items a month</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Automatic eBay listing, no per-listing fee</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Inventory tracking</span></div>
       </div>
@@ -1774,16 +1874,16 @@ function showPaywall(kind) {
        asking for a card. Showing them a price here would be both pushier and
        less accurate. */
     b.innerHTML = `
-      <h3>Get another free scan</h3>
-      <p>Create an account and your next scan is on us. No password, no card — just an email and a six-digit code.</p>
+      <h3>One more on us</h3>
+      <p>Create an account and your next item is free. No password, no card — just an email and a six-digit code.</p>
       <button class="btn btn-acc" onclick="closeSheet();requireAccount()">Create an account</button>
       <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet()">Not now</button>`;
   } else if (kind === 'quota') {
     b.innerHTML = `
-      <h3>Keep scanning for ${esc(starter.priceLabel)} a month</h3>
-      <p>Ten scans a month, automatic eBay listing, and inventory tracking. One decent flip covers most of a year.</p>
+      <h3>Keep going for ${esc(starter.priceLabel)} a month</h3>
+      <p>Ten items a month, automatic eBay listing, and inventory tracking. One decent flip covers most of a year.</p>
       <div class="card tight" style="margin-bottom:16px">
-        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 scans a month</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 items a month</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>One-tap eBay listing, no per-listing fee</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Cancel any time</span></div>
       </div>
@@ -2064,14 +2164,16 @@ function renderExampleState() {
   if (!viewingExample) {
     bar.innerHTML = '';
     if (acts) acts.innerHTML = `
-      <button class="btn btn-ebay" onclick="toListing()">
-        <svg viewBox="0 0 24 24"><path d="M3 9h18M3 9l2-4h14l2 4M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M9 13h6"/></svg>
-        List it on eBay
-      </button>
       <div class="btn-row" style="margin-top:10px">
         <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="saveDraft()">Save draft</button>
-        <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="startScan()">Scan another</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="startScan()">Photograph another</button>
       </div>`;
+    /* The primary action lives in the dock now, so it is reachable from any
+       scroll position rather than only from the bottom of the report. */
+    setDock(`<button class="btn btn-ebay" onclick="toListing()">
+        <svg viewBox="0 0 24 24"><path d="M3 9h18M3 9l2-4h14l2 4M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M9 13h6"/></svg>
+        List it on eBay
+      </button>`);
     return;
   }
 
@@ -2081,13 +2183,29 @@ function renderExampleState() {
     <span class="s">Illustrative figures</span>
   </div>`;
   if (acts) acts.innerHTML = `
-    <button class="btn btn-acc" onclick="viewingExample=false;startScan()">
-      <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
-      Scan your own item
-    </button>
     <div class="btn-row" style="margin-top:10px">
       <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="viewingExample=false;tabTo('home')">Back to home</button>
     </div>`;
+  setDock(`<button class="btn btn-acc" onclick="viewingExample=false;startScan()">
+      <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
+      Take a photo of your own
+    </button>`);
+}
+
+/* The dock belongs to the results screen alone. go() clears it on the way out
+   so it can never float over the plan screen or the listing editor. */
+function setDock(html) {
+  const d = document.getElementById('resDock');
+  if (!d) return;
+  d.innerHTML = html;
+  d.classList.add('show');
+  document.getElementById('s-results')?.classList.add('has-dock');
+}
+function clearDock() {
+  const d = document.getElementById('resDock');
+  if (!d) return;
+  d.classList.remove('show');
+  document.getElementById('s-results')?.classList.remove('has-dock');
 }
 
 function renderSellNote(net) {
@@ -2577,8 +2695,8 @@ function renderInventory() {
     el.innerHTML = `<div class="empty">
       <div class="ei"><svg viewBox="0 0 24 24">${GLYPH.box}</svg></div>
       <div class="t">${invFilter === 'all' ? 'Nothing here yet' : 'No ' + invFilter + ' items'}</div>
-      <div class="s">Scan something and it will show up here.</div>
-      <button class="btn btn-ghost btn-sm" style="margin:18px auto 0" onclick="startScan()">Scan an item</button></div>`;
+      <div class="s">Photograph something and it will show up here.</div>
+      <button class="btn btn-ghost btn-sm" style="margin:18px auto 0" onclick="startScan()">Take a photo</button></div>`;
     return;
   }
   el.innerHTML = list.map(i => `<div class="item-row" onclick="openItem('${i.id}')">
@@ -2638,10 +2756,26 @@ function deleteItem() {
 }
 
 /* ═════════════════════════════ HOME ═════════════════════════════ */
+/* "Good evening / Ready when you are" could have sat on top of a banking app.
+   These say what the thing in your hands is for. They rotate per visit so the
+   home screen does not read as a static page you have already finished with —
+   and each one still lands on the same idea: the stuff you own is worth money
+   you have not counted. */
+const HOME_LINES = [
+  { eyebrow: 'Point. Shoot. Price.',   head: "What's in<br>your closet?" },
+  { eyebrow: 'Resale intelligence',    head: 'Your junk drawer<br>has a number' },
+  { eyebrow: 'Photo powered pricing',  head: 'Find the money<br>in your stuff' },
+  { eyebrow: 'Real sold comps',        head: 'Know before<br>you sell' },
+  { eyebrow: 'One photo, one price',   head: 'Every shelf is<br>a price list' }
+];
+
 function renderHome() {
-  const h = new Date().getHours();
-  document.getElementById('homeGreet').textContent =
-    h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  /* Stable for the session, so the headline does not change under the user
+     while they are looking at it. */
+  if (homeLine === null) homeLine = Math.floor(Math.random() * HOME_LINES.length);
+  const line = HOME_LINES[homeLine];
+  document.getElementById('homeGreet').textContent = line.eyebrow;
+  document.getElementById('homeHead').innerHTML = line.head;
 
   document.getElementById('trendRail').innerHTML = TRENDS.map(t =>
     imgTile(t, '', `<span class="cap">${t.name}<span class="s">${t.sub}</span></span>`)).join('');
@@ -2683,10 +2817,10 @@ function renderHome() {
   const stale = !me.signedIn && inventory.length >= 2;
   document.getElementById('homeUpsell').innerHTML = me.signedIn ? '' : `
     <div class="card lit" style="margin-top:26px;text-align:center">
-      <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Create an account, get another free scan</div>
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Create an account, get one more free</div>
       <p style="font-size:13.5px;color:var(--mut);line-height:1.55;margin:8px 0 16px">
         ${stale
-          ? `Your ${inventory.length} scans live only in this browser — clear it and they're gone. An account keeps them, and adds a scan.`
+          ? `Your ${inventory.length} items live only in this browser — clear it and they're gone. An account keeps them, and adds one more.`
           : 'No password. Just an email and a six-digit code.'}</p>
       <button class="btn btn-acc" style="margin:0 auto;max-width:260px" onclick="requireAccount()">Create an account</button>
     </div>`;
@@ -2711,7 +2845,7 @@ function renderProfile() {
     </div>
 
     ${inventory.length ? `<div class="stats" style="margin-bottom:14px;gap:11px">
-      <div class="stat"><div class="sv">${inventory.length}</div><div class="sl">Scans</div></div>
+      <div class="stat"><div class="sv">${inventory.length}</div><div class="sl">Items</div></div>
       <div class="stat"><div class="sv">${money(total)}</div><div class="sl">Est. value</div></div>
       <div class="stat"><div class="sv">${inventory.filter(i => i.status !== 'draft').length}</div><div class="sl">Listed</div></div>
       <div class="stat"><div class="sv">${avg || '—'}</div><div class="sl">Avg score</div></div>
@@ -2720,7 +2854,7 @@ function renderProfile() {
     <div class="card" style="margin-bottom:14px">
       <div class="row-between">
         <div><div style="font-size:15px;font-weight:700">${planName} plan</div>
-          <div style="font-size:13px;color:var(--mut);margin-top:3px">${me.unlimited ? 'Unlimited scans' : `${me.scansLeft} of ${me.scansLimit} scans left this month`}</div></div>
+          <div style="font-size:13px;color:var(--mut);margin-top:3px">${me.unlimited ? 'Unlimited items' : `${me.scansLeft} of ${me.scansLimit} left this month`}</div></div>
         ${me.unlimited ? '' : `<button class="btn btn-acc btn-sm" onclick="tabTo('plan')">${me.plan === 'free' ? 'Upgrade' : 'Manage'}</button>`}
       </div>
     </div>
@@ -2834,6 +2968,35 @@ function showServerBanner() {
     'Start it with <b style="color:#fff">node server/server.mjs</b>, then reload.' +
     '<button onclick="this.parentNode.remove()" style="position:absolute;top:9px;right:11px;color:#FFB0A8;font-size:15px">✕</button>';
   document.body.appendChild(d);
+}
+
+/* Reveal-on-scroll. Applied to the direct children of scrolling screens, so
+   a section eases in as it comes into view instead of the whole page being
+   fully present the moment it renders. Re-run after any render that replaces
+   markup, because new nodes need observing. */
+let revealObs = null;
+function armReveals(screenId) {
+  const sc = document.getElementById('s-' + screenId);
+  if (!sc || !('IntersectionObserver' in window)) return;
+  if (window.matchMedia('(prefers-reduced-motion:reduce)').matches) return;
+
+  revealObs ||= new IntersectionObserver(entries => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      e.target.classList.add('in');
+      revealObs.unobserve(e.target);        // one-shot: nothing keeps observing
+    }
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.04 });
+
+  [...sc.children].forEach((el, i) => {
+    if (el.classList.contains('reveal') || !el.offsetHeight) return;
+    /* The first block is already in view on arrival — animating it would just
+       delay the screen. */
+    if (i === 0) return;
+    el.classList.add('reveal');
+    el.style.transitionDelay = Math.min(i, 4) * 40 + 'ms';
+    revealObs.observe(el);
+  });
 }
 
 (async function boot() {
