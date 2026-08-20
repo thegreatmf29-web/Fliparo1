@@ -31,9 +31,9 @@ export const PLANS = {
     priceLabel: '$0',
     scans: 1,
     autoList: false,
-    blurb: 'See what the app does.',
+    blurb: 'Try it on one thing.',
     features: [
-      '1 scan per month',
+      '1 item a month',
       'Full valuation and condition report',
       'A finished eBay listing, written for you',
       'Paste it in yourself'
@@ -50,7 +50,7 @@ export const PLANS = {
     popular: true,
     blurb: 'For the weekend flipper.',
     features: [
-      '10 scans per month',
+      '10 items a month',
       'Automatic eBay listing included',
       'No per-listing fee, ever',
       'Condition and authenticity reports',
@@ -67,7 +67,7 @@ export const PLANS = {
     autoList: true,
     blurb: 'For people doing this for real.',
     features: [
-      '100 scans per month',
+      '100 items a month',
       'Unlimited automatic listings',
       'Priority analysis queue',
       'Full sales and margin history',
