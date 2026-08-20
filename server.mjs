@@ -938,6 +938,15 @@ app.get('/api/auth/diagnose', async (_req, res) => {
 });
 app.post('/api/auth/request',     accounts.requestCode);
 app.post('/api/auth/verify',      accounts.verifyCode);
+app.post('/api/auth/google',      accounts.googleAuth);
+
+/* What the client needs before it can render the auth screen. Public by
+   design: a Google client id is not a secret — it is embedded in every page
+   that offers the button. */
+app.get('/api/config', (_req, res) => res.json({
+  googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+  mailConfigured: accounts.mailConfigured()
+}));
 app.get ('/api/me',               accounts.me);
 app.post('/api/billing/checkout', accounts.createCheckout);
 app.post('/api/billing/portal',   accounts.billingPortal);
