@@ -5,14 +5,13 @@
    app talks only to this server; this server talks to Anthropic. One key, set
    once, in .env — users never see a key field at all.
 
-   No npm install needed. Just: node server.js
+   No npm install needed. Just: node server.mjs
 
    Marketplace publishing:
-     eBay    — real public Sell API, full OAuth + publish. Works today.
-     Depop   — private Partner Selling API. Code is complete; set DEPOP_API_KEY
-               once you're approved and it switches on.
-     Poshmark— no public write API exists. We return a prepared draft payload
-               and let the app hand off. Documented, not faked.
+     eBay — real public Sell API, full OAuth + publish. The only marketplace
+            this app lists to, and the only one with a public write API.
+            Poshmark, Depop and Mercari were removed: reaching them means
+            scraping, which breaks their terms and gets sellers banned.
    ========================================================================== */
 
 /* MUST be first: populates process.env from .env before any module below
@@ -345,11 +344,7 @@ function extractJSON(text) {
    Verified Aug 2026. Update here if a platform changes its rates.
    -------------------------------------------------------------------------- */
 const FEES = {
-  ebay:     { name: 'eBay',     pct: 0.1335, fixed: 0.40, note: 'Final value fee + $0.40/order' },
-  poshmark: { name: 'Poshmark', pct: 0.20,   fixed: 0,    under15: 2.95,
-              note: '20% over $15, flat $2.95 under' },
-  depop:    { name: 'Depop',    pct: 0.0349, fixed: 0.49, note: 'Payments fee 3.49% + $0.49' },
-  mercari:  { name: 'Mercari',  pct: 0.10,   fixed: 0.50, note: '10% + $0.50' }
+  ebay: { name: 'eBay', pct: 0.1335, fixed: 0.40, note: 'Final value fee + $0.40/order' }
 };
 
 function netFor(platform, price) {
@@ -407,10 +402,6 @@ app.post('/api/analyze', gate, quotaGate, async (req, res) => {
   "resellValue": <0-100>, "demand": <0-100>, "trendingLevel": <0-100>,
   "rarityLevel": <0-100>, "sellThroughDays": <typical days to sell, integer>,
 
-  "bestPlatform": "ebay | poshmark | depop | mercari",
-  "platformFit": { "ebay": <0-100>, "poshmark": <0-100>, "depop": <0-100>, "mercari": <0-100> },
-  "platformReason": "one sentence on why the best platform wins for THIS item",
-
   "keywords": ["8-12 search terms real buyers type"],
   "verdict": "one punchy sentence on whether this is worth flipping"
 }
@@ -422,7 +413,7 @@ Scoring rules — be honest and use the full range. Do not cluster everything at
 - if the photos are too poor or ambiguous to identify the item, say so in productName and set priceConfidence under 30.` });
 
     const { text, model } = await askClaude({
-      system: 'You are a professional resale analyst with deep knowledge of eBay, Poshmark, Depop, Grailed and Mercari sold comps. You are blunt, accurate, and never inflate a valuation to please the seller.',
+      system: 'You are a professional resale analyst with deep knowledge of eBay sold comps. You are blunt, accurate, and never inflate a valuation to please the seller.',
       content, maxTokens: 2200
     });
 
@@ -469,10 +460,7 @@ app.post('/api/listing', gate, async (req, res) => {
     if (!item) return res.status(400).json({ error: 'Missing item data.' });
 
     const rules = {
-      ebay: 'eBay: title max 80 chars, keyword-dense, format "Brand Model Colorway Size Condition". Buyers search literally — no cute language. Description should be scannable with short lines and an explicit flaws section.',
-      poshmark: 'Poshmark: title max 80 chars, friendly and boutique-ish. Description warm but honest, emoji sparingly (2-3 max), end with a line inviting bundles.',
-      depop: 'Depop: title max 65 chars. Audience is Gen Z. Style-led language, mention the vibe and era ("y2k", "90s workwear", "gorpcore") where genuinely accurate. Lowercase is fine. Never invent a trend that does not fit the item.',
-      mercari: 'Mercari: title max 80 chars, plain and factual. Description short, bullet-like, condition stated up front.'
+      ebay: 'eBay: title max 80 chars, keyword-dense, format "Brand Model Colorway Size Condition". Buyers search literally — no cute language. Description should be scannable with short lines and an explicit flaws section.'
     };
 
     const { text } = await askClaude({
@@ -767,28 +755,6 @@ app.post('/api/depop/publish', async (req, res) => {
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
-});
-
-/* ==========================================================================
-   Poshmark — no public write API. This is the honest path.
-   ========================================================================== */
-app.post('/api/poshmark/draft', (req, res) => {
-  const { item, listing } = req.body;
-  res.json({
-    ok: true,
-    mode: 'assisted',
-    reason: 'Poshmark has no public listing API. Automated posting would require scraping their site, which violates their Terms of Service and gets accounts banned. This prepares everything so listing takes about 20 seconds.',
-    deepLink: 'poshmark://create-listing',
-    webFallback: 'https://poshmark.com/create-listing',
-    clipboard: {
-      title: listing.title,
-      description: `${listing.description}\n\n${listing.flawsDisclosure || ''}`.trim(),
-      price: listing.suggestedPrice,
-      brand: item.brand,
-      size: item.size || 'OS',
-      category: item.category
-    }
-  });
 });
 
 /* --------------------------------------------------------------------------
