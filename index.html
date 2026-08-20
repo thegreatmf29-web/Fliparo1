@@ -34,6 +34,11 @@
   --shadow:0 8px 30px rgba(0,0,0,.5);
   --shadow-acc:0 10px 34px -6px var(--glow-1),0 0 0 1px rgba(168,85,247,.28);
   --ease:cubic-bezier(.22,1,.36,1);
+  /* Navigation curve. Very fast out of the gate, long slow settle — this is
+     what makes a push read as weight being moved rather than a slide playing.
+     A symmetric ease looks mechanical at this distance. */
+  --ease-nav:cubic-bezier(.32,.72,0,1);
+  --t-nav:440ms;
 }
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overscroll-behavior-y:none}
@@ -72,7 +77,51 @@ body::before{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--safe-t) + 52px) 20px 0;
 }
-.screen.active{display:flex;animation:in .34s var(--ease)}
+.screen.active{display:flex;animation:in .34s var(--ease);z-index:2}
+
+/* ── navigation: a real push ───────────────────────────────────────────────
+   Both screens are on stage at once. The outgoing one stays mounted for the
+   duration of the animation and travels about a third of the distance the
+   incoming one does, which is the parallax that reads as depth — the old
+   screen sitting *behind* the new one rather than being replaced by it.
+
+   Only transform and opacity are animated. Both are composited, so the whole
+   move happens off the main thread and stays smooth while the incoming screen
+   is still running its own content animations.
+
+   The app bar sits at a higher z-index and deliberately does not move: a
+   fixed chrome bar with the content sliding beneath it is most of what makes
+   this feel native rather than like a page swap. */
+.screen.leaving{display:flex;z-index:1;pointer-events:none}
+.screen.active.nav-fwd,.screen.active.nav-back,
+.screen.leaving.nav-fwd,.screen.leaving.nav-back{will-change:transform,opacity}
+
+.screen.active.nav-fwd  {animation:pushIn  var(--t-nav) var(--ease-nav) both}
+.screen.leaving.nav-fwd {animation:pushOut var(--t-nav) var(--ease-nav) both}
+.screen.active.nav-back {animation:popIn   var(--t-nav) var(--ease-nav) both}
+.screen.leaving.nav-back{animation:popOut  var(--t-nav) var(--ease-nav) both}
+
+@keyframes pushIn  {from{transform:translate3d(100%,0,0)} to{transform:translate3d(0,0,0)}}
+@keyframes pushOut {from{transform:translate3d(0,0,0);opacity:1}
+                    to{transform:translate3d(-32%,0,0);opacity:.35}}
+@keyframes popIn   {from{transform:translate3d(-32%,0,0);opacity:.35}
+                    to{transform:translate3d(0,0,0);opacity:1}}
+@keyframes popOut  {from{transform:translate3d(0,0,0)} to{transform:translate3d(100%,0,0)}}
+
+/* A soft edge on the incoming screen so it reads as a sheet of paper laid over
+   the old one instead of a rectangle of identical background sliding across. */
+.screen.active.nav-fwd::before,
+.screen.leaving.nav-back::before{
+  content:'';position:absolute;top:0;bottom:0;left:-26px;width:26px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(0,0,0,.5))
+}
+
+@media (prefers-reduced-motion:reduce){
+  .screen.active,.screen.leaving,.rise,
+  .screen.active.nav-fwd,.screen.active.nav-back,
+  .screen.leaving.nav-fwd,.screen.leaving.nav-back{animation:none}
+  .screen.leaving{display:none}
+}
 .screen.scrolls{overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:40px}
 /* A screen is a flex column. Without this, any content taller than the
    viewport gets SQUEEZED instead of scrolling — cards collapse into each
@@ -231,6 +280,42 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 #nav .tab-scan .fab svg{width:25px;height:25px;stroke:#fff;stroke-width:2.2}
 #nav .tab-scan .tl{color:var(--mut);margin-top:1px}
 
+/* ══════════════════════════════════════════════════════════════════════════
+   TOUCH
+   Anything tappable gets a 44px minimum hit area and visible feedback on
+   press. On a phone the press state is the only affordance there is — there
+   is no hover to tell you something is interactive.
+   ══════════════════════════════════════════════════════════════════════════ */
+@media (hover:none){
+  .icon-btn{width:44px;height:44px}
+  .item-row{padding:13px}
+  .list-link{min-height:48px}
+  /* Cards that navigate should acknowledge the tap. */
+  .card[onclick]:active,.plat:active,.strat:active,.tile:active{transform:scale(.985)}
+  .card[onclick],.plat,.strat,.tile{transition:transform .16s var(--ease)}
+}
+
+/* Small phones: the type scale and the padding both need to come in, or the
+   headline wraps to three lines and the content column feels boxed in. */
+@media (max-width:380px){
+  .screen{padding-left:16px;padding-right:16px}
+  .page-head h1{font-size:27px}
+  .hero-scan{padding:22px 18px 20px}
+  .hero-scan .hl{font-size:23px}
+  .ring-wrap{width:168px;height:168px}
+  .ring-mid .rv{font-size:48px}
+  .gauge{width:70px;height:70px}
+  .prof-av{width:92px;height:92px;border-radius:32px;font-size:38px}
+  .prof-em{font-size:20px}
+  .btn{height:52px;font-size:15.5px}
+}
+
+/* Tall-screen phones have room to breathe; short ones (SE, landscape) do not. */
+@media (max-height:680px){
+  .page-head{padding-bottom:12px}
+  h2.sec{margin:22px 0 10px}
+}
+
 /* ─────────────────────────── quota meter ─────────────────────────── */
 .quota{display:flex;align-items:center;gap:11px;padding:13px 16px;border-radius:var(--r);
        background:var(--card);border:1px solid var(--line);margin-bottom:16px}
@@ -302,6 +387,12 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
   align-items:center;justify-content:center;gap:5px;background:transparent}
 .photo-cell.add svg{width:21px;height:21px;stroke:var(--dim);fill:none;stroke-width:2;stroke-linecap:round}
 .photo-cell.add .lbl{font-size:11px;color:var(--dim);font-weight:600}
+
+/* A rule with the word centred in it — the standard way to say "these are
+   alternatives", without either option looking secondary. */
+.or-split{display:flex;align-items:center;gap:14px;margin:20px 0;color:var(--dim);
+  font-size:12px;font-weight:650;letter-spacing:.08em;text-transform:uppercase}
+.or-split::before,.or-split::after{content:'';flex:1;height:1px;background:var(--line2)}
 
 /* ─────────────────────────── inputs ─────────────────────────── */
 .field{margin-bottom:17px}
@@ -428,6 +519,24 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .hero-photo .hb{font-size:13px;color:rgba(255,255,255,.66);margin-top:4px;font-weight:600}
 .hero-photo .htier{position:absolute;top:14px;right:14px}
 
+/* The upsell sits where the value is, not on a tab the user has to find. */
+.sell-note{margin-top:22px;padding:18px 20px;border-radius:var(--r-lg);
+  border:1px solid rgba(168,85,247,.3);background:linear-gradient(160deg,rgba(168,85,247,.12),var(--card) 62%);
+  box-shadow:0 14px 40px -24px var(--glow-1)}
+.sell-note .sn-t{font-size:15.5px;font-weight:750;letter-spacing:-.02em}
+.sell-note .sn-s{font-size:13px;color:var(--mut);line-height:1.5;margin-top:5px}
+.sell-note .sn-roi{display:inline-block;margin-top:11px;padding:6px 12px;border-radius:99px;
+  background:var(--acc-dim);color:var(--acc-hi);font-size:12px;font-weight:750}
+
+/* Example banner. Deliberately loud: a demo report that could be mistaken for
+   a real valuation of the user's own item would be worse than no demo. */
+.ex-bar{display:flex;align-items:center;gap:11px;padding:13px 16px;margin-bottom:14px;
+  border-radius:99px;background:var(--acc-dim);border:1px solid rgba(168,85,247,.34)}
+.ex-bar .d{width:7px;height:7px;border-radius:50%;background:var(--acc);flex-shrink:0;
+  box-shadow:0 0 10px var(--acc)}
+.ex-bar .t{font-size:13px;font-weight:700;letter-spacing:-.01em;flex:1}
+.ex-bar .s{font-size:12.5px;color:var(--mut);font-weight:600}
+
 /* Net payout — the number a seller actually cares about. */
 .netline{display:flex;align-items:center;justify-content:space-between;gap:10px;
   margin-top:14px;padding:13px 16px;border-radius:99px;background:var(--card2);
@@ -537,7 +646,12 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   padding:12px 22px calc(26px + var(--safe-b));transform:translateY(101%);
   transition:transform .42s var(--ease);max-height:88vh;overflow-y:auto}
 #sheet.show{transform:none}
-#sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line2);margin:0 auto 18px}
+/* The grab handle is a 38px bar but a 26px-tall touch target, because the bar
+   is what you see and the target is what you hit. */
+#sheet .grab{width:38px;height:4px;border-radius:2px;background:var(--line2);
+  margin:0 auto 18px;position:relative}
+#sheet .grab::after{content:'';position:absolute;left:-40px;right:-40px;top:-13px;bottom:-13px}
+#sheet.dragging{transition:none}
 #sheet h3{font-size:21px;font-weight:800;letter-spacing:-.04em;margin-bottom:9px}
 #sheet p{font-size:14.5px;color:var(--mut);line-height:1.6;margin-bottom:16px}
 #toast{position:fixed;left:50%;bottom:calc(var(--nav-h) + 18px);transform:translate(-50%,18px);
@@ -597,6 +711,14 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   .page-head h1{font-size:38px}
   .screen.has-nav{padding-bottom:40px}
   .screen>*{max-width:940px;margin-left:auto;margin-right:auto;width:100%}
+  /* h2.sec sets `margin:30px 0 13px` and .rail sets `margin:0`, and both
+     out-rank the rule above — h2.sec on specificity, .rail on source order.
+     The shorthand zeroes the auto side margins, so every section heading and
+     the trending rail sat flush against the sidebar while the cards between
+     them were centred. Restated here at higher specificity, which is the
+     honest fix; !important would work and would hide the reason. */
+  .screen>h2.sec,
+  .screen>.rail{margin-left:auto;margin-right:auto}
   #nav{display:none !important}
   .hdr{padding-top:0}
 
@@ -684,6 +806,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
         <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
         Start scanning
       </button>
+      <button class="btn btn-ghost btn-sm" id="heroExample" style="margin-top:10px;width:auto"
+        onclick="showExample()">See an example report</button>
     </div>
     <!-- Desktop only: fills the dead space beside the copy. Built from the same
          fallback tiles as the rail, so it survives a blocked image CDN. -->
@@ -720,6 +844,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
   </div>
 
   <div class="err" id="scanErr"></div>
+
+  <div id="photoTip"></div>
 
   <div class="photo-grid" id="photoGrid"></div>
 
@@ -765,6 +891,8 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 
 <!-- ══════════════════════ RESULTS ══════════════════════ -->
 <section class="screen scrolls" id="s-results">
+
+  <div id="exampleBar"></div>
 
   <div class="res-cols">
     <!-- left: what it is, and what it is worth -->
@@ -826,16 +954,9 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
              stroke-width:2;flex-shrink:0"><path d="M9 6l6 6-6 6"/></svg>
       </div>
 
-      <div style="margin-top:26px">
-        <button class="btn btn-ebay" onclick="toListing()">
-          <svg viewBox="0 0 24 24"><path d="M3 9h18M3 9l2-4h14l2 4M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M9 13h6"/></svg>
-          List it on eBay
-        </button>
-        <div class="btn-row" style="margin-top:10px">
-          <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="saveDraft()">Save draft</button>
-          <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="startScan()">Scan another</button>
-        </div>
-      </div>
+      <div id="resUpsell"></div>
+
+      <div id="resActions" style="margin-top:26px"></div>
       <div style="height:30px"></div>
     </div>
   </div>
@@ -888,6 +1009,7 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     <p class="lead">Cancel any time. One flip usually covers a year of this.</p>
   </div>
   <div class="err" id="planErr"></div>
+  <div id="planCycle"></div>
   <div class="plan-grid" id="planList"></div>
   <div id="planFoot"></div>
   <div style="height:36px"></div>
@@ -902,6 +1024,12 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
         <p class="lead">No password. We email you a six-digit code. That's the whole process.</p>
       </div>
       <div class="err" id="authErr"></div>
+
+      <div id="googleWrap" style="display:none">
+        <div id="googleBtn" style="display:flex;justify-content:center"></div>
+        <div class="or-split"><span>or</span></div>
+      </div>
+
       <div class="field">
         <label>Email</label>
         <input class="inp" id="authEmail" type="email" inputmode="email" autocomplete="email"
@@ -1042,6 +1170,48 @@ const METRICS = [
   {key:'trendingLevel',name:'Trending',     hi:'Peaking in the market this season.', mid:'Stable — no big hype either way.', lo:'Interest has cooled off.'},
   {key:'rarityLevel',  name:'Rarity',       hi:'Limited or hard to find.', mid:'Common but not flooded.', lo:'Mass produced and everywhere.'}
 ];
+
+/* A worked example, so a first-time visitor can judge the output without
+   first finding an item, photographing it, and spending the one free scan
+   they get. Every number here is illustrative and the screen says so — the
+   point is to show the shape and depth of a real report, not to make a claim
+   about this particular pair of shoes. */
+const EXAMPLE_SCAN = {
+  productName: "Nike Air Jordan 4 Retro 'Bred'",
+  brand: 'Nike', size: '10.5', colorway: 'Black / Fire Red',
+  category: 'Sneakers', subcategory: 'Athletic Shoes', styleCode: '308497-060',
+  averagePrice: 318, priceLow: 270, priceHigh: 395,
+  quickSalePrice: 275, patientPrice: 390,
+  priceConfidence: 82, sellThroughDays: 9,
+  resellValue: 84, demand: 78, trendingLevel: 66, rarityLevel: 71,
+  conditionScore: 73, conditionGrade: 'Very Good',
+  conditionSummary: 'Light creasing across the toe box, outsole tread largely intact, no separation.',
+  photoQuality: { score: 58, advice: 'Plain background, one photo per angle.' },
+  defects: [{ type: 'Creasing', severity: 'minor', where: 'toe box', priceImpact: -18 }],
+  verdict: 'Strong margin — bred 4s move fast at the right price.',
+  keywords: ['jordan 4', 'bred', 'retro', '308497-060'],
+  photos: ['data:image/svg+xml;base64,' + btoa(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600">
+       <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+         <stop offset="0" stop-color="#2a2030"/><stop offset="1" stop-color="#14101a"/></linearGradient></defs>
+       <rect width="800" height="600" fill="url(#g)"/>
+       <g fill="none" stroke="#8b6fd6" stroke-width="11" stroke-linejoin="round" stroke-linecap="round" opacity="0.85">
+         <path d="M150 400h300l90-70 78 26v70H150zM150 400v-92l92-46 70 70h140"/>
+       </g>
+       <text x="400" y="510" font-family="-apple-system,Segoe UI,sans-serif" font-size="27"
+             fill="#9a8fb5" text-anchor="middle">Example item</text>
+     </svg>`)]
+};
+
+let viewingExample = false;
+
+function showExample() {
+  viewingExample = true;
+  current = JSON.parse(JSON.stringify(EXAMPLE_SCAN));
+  navStack = ['home'];
+  renderResults(current);
+  go('results', { replace: true });
+}
 
 const SCAN_MSGS = ['Locking onto the item…','Reading brand markers and logos…','Grading surface condition…',
   'Cross-referencing recent sold listings…','Measuring buyer demand…','Detecting rarity signals…',
@@ -1257,9 +1427,35 @@ function go(id, opts = {}) {
      the very first go('home') did nothing at boot (home is already active in
      the markup), so the bottom nav never appeared. */
   if (cur !== target) {
-    if (cur && !opts.replace) navStack.push(cur.id.replace('s-', ''));
-    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    /* `back` pops the stack, so it must not push onto it — but unlike
+       `replace` it is still a real navigation and should animate. */
+    if (cur && !opts.replace && !opts.back) navStack.push(cur.id.replace('s-', ''));
+
+    /* Direction belongs to the navigation, not to either screen, so it is
+       applied per transition. Tab switches (`replace`) keep the plain fade —
+       a horizontal push between peers would imply a hierarchy that isn't
+       there. */
+    const dir = opts.back ? 'nav-back' : 'nav-fwd';
+    const push = !opts.replace || opts.back;
+
+    document.querySelectorAll('.screen').forEach(s =>
+      s.classList.remove('active', 'leaving', 'nav-fwd', 'nav-back'));
+
+    if (cur && push) {
+      /* The outgoing screen stays mounted for the length of the animation.
+         Without this there is nothing to slide out and the push collapses
+         back into a one-sided slide-in. */
+      cur.classList.add('leaving', dir);
+      const settle = () => cur.classList.remove('leaving', 'nav-fwd', 'nav-back');
+      cur.addEventListener('animationend', settle, { once: true });
+      /* animationend never fires if the tab is backgrounded mid-transition or
+         motion is reduced, and a screen stuck in `leaving` would sit visible
+         on top of the app forever. */
+      setTimeout(settle, 900);
+    }
+
     target.classList.add('active');
+    if (push) target.classList.add(dir);
     target.scrollTop = 0;
   }
 
@@ -1277,12 +1473,78 @@ function go(id, opts = {}) {
   haptic();
 }
 function back() {
+  /* Marks the next go() as a backwards move so it animates in from the left. */
   const prev = navStack.pop();
-  go(prev || 'home', { replace: true });
+  go(prev || 'home', { back: true });
 }
 function tabTo(id) { navStack = []; go(id, { replace: true }); }
 
 /* ═════════════════════════════ ACCOUNT ═════════════════════════════ */
+/* ══════════════════════════ Sign in with Google ══════════════════════════
+   The Google script is only loaded if the server says a client id exists, so
+   a deployment without Google configured ships no third-party script at all
+   and the email flow is untouched.
+   ========================================================================= */
+let googleClientId = '';
+
+async function loadAuthConfig() {
+  try {
+    const c = await fetch(API + '/api/config').then(r => r.json());
+    googleClientId = c.googleClientId || '';
+  } catch { googleClientId = ''; }
+  if (googleClientId) initGoogle();
+}
+
+function initGoogle() {
+  if (document.getElementById('gsiScript')) return renderGoogleBtn();
+  const sc = document.createElement('script');
+  sc.id = 'gsiScript';
+  sc.src = 'https://accounts.google.com/gsi/client';
+  sc.async = true; sc.defer = true;
+  sc.onload = renderGoogleBtn;
+  /* A blocked or failed script must not break the screen — the email flow is
+     still there and still works. */
+  sc.onerror = () => console.warn('Google sign-in script unavailable');
+  document.head.appendChild(sc);
+}
+
+function renderGoogleBtn() {
+  if (!window.google?.accounts?.id) return;
+  const wrap = document.getElementById('googleWrap');
+  const host = document.getElementById('googleBtn');
+  if (!wrap || !host) return;
+  host.innerHTML = '';
+  window.google.accounts.id.initialize({
+    client_id: googleClientId,
+    callback: onGoogleCredential
+  });
+  window.google.accounts.id.renderButton(host, {
+    theme: 'filled_black', size: 'large', shape: 'pill',
+    text: 'continue_with', width: 320
+  });
+  wrap.style.display = '';
+}
+
+async function onGoogleCredential(resp) {
+  hideErr('authErr');
+  try {
+    const r = await fetch(API + '/api/auth/google', {
+      method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ credential: resp.credential })
+    });
+    const j = await r.json();
+    if (!r.ok) return showErr('authErr', esc(j.error || 'Google sign-in failed.'));
+    store('token', j.token);
+    if (!store('joined')) store('joined', Date.now());
+    await refreshMe();
+    renderNav();
+    toast('Signed in');
+    back();
+  } catch (e) {
+    showErr('authErr', friendlyError(e));
+  }
+}
+
 async function refreshMe() {
   try {
     const r = await fetch(API + '/api/me', { headers: authHeaders() });
@@ -1298,8 +1560,13 @@ function renderQuota() {
   const pct = me.unlimited ? 100 : (me.scansLimit ? Math.min(100, (me.scansUsed / me.scansLimit) * 100) : 0);
   const planName = (me.planName || (me.plan || 'free')).replace(/^./, c => c.toUpperCase());
   const left = me.unlimited ? 'Unlimited scans' : `${me.scansLeft} of ${me.scansLimit} scans left`;
+  /* On the free plan this row read "1 of 1 scans left" beside an empty bar —
+     a status line about a limit. Once there is inventory, the more useful
+     number is what the scans have found, which grows instead of shrinking. */
+  const worth = inventory.reduce((a, i) => a + (i.price || 0), 0);
+  const showWorth = inventory.length >= 2 && worth > 0;
   const html = `<div class="quota">
-    <span class="qtxt">${left}</span>
+    <span class="qtxt">${showWorth ? `${money(worth)} found across ${inventory.length} scans` : left}</span>
     <span class="qbar"><span class="qfill" style="width:${pct}%;
       background:${!me.unlimited && me.scansLeft === 0 ? 'var(--red)' : 'var(--acc)'}"></span></span>
     ${me.unlimited || me.plan === 'pro' ? `<span class="qtxt">${planName}</span>`
@@ -1318,6 +1585,7 @@ function renderQuota() {
 
 function requireAccount(reason) {
   pendingEmail = '';
+  if (googleClientId) renderGoogleBtn();
   document.getElementById('authStep1').style.display = '';
   document.getElementById('authStep2').style.display = 'none';
   hideErr('authErr'); hideErr('authErr2');
@@ -1400,9 +1668,23 @@ async function loadPlans() {
   } catch { PLANS = []; }
 }
 
+let planCycle = 'month';
+function setPlanCycle(c) { planCycle = c; renderPlans(); haptic(); }
+
 async function renderPlans() {
   hideErr('planErr');
   if (!PLANS.length) await loadPlans();
+
+  /* Only offer the yearly toggle when at least one yearly Stripe price is
+     actually configured — otherwise the switch would advertise a checkout
+     that 400s. */
+  const yearly = PLANS.some(p => p.yearAvailable);
+  if (!yearly) planCycle = 'month';
+  document.getElementById('planCycle').innerHTML = !yearly ? '' : `
+    <div class="seg" style="max-width:260px;margin:0 auto 18px">
+      <button class="${planCycle === 'month' ? 'on' : ''}" onclick="setPlanCycle('month')">Monthly</button>
+      <button class="${planCycle === 'year' ? 'on' : ''}" onclick="setPlanCycle('year')">Yearly · 2 months free</button>
+    </div>`;
 
   document.getElementById('planList').innerHTML = PLANS.map(p => {
     const isCur = (me.plan || 'free') === p.id;
@@ -1410,7 +1692,18 @@ async function renderPlans() {
       ${isCur ? '<span class="ptag now">Your plan</span>' : p.popular ? '<span class="ptag">Most popular</span>' : ''}
       <div class="pname">${esc(p.name)}</div>
       <div class="pblurb">${esc(p.blurb)}</div>
-      <div class="pprice"><span class="v">${esc(p.priceLabel)}</span>${p.price ? '<span class="p">/month</span>' : ''}</div>
+      ${(() => {
+        const asYear = planCycle === 'year' && p.yearAvailable && p.yearPrice;
+        const shown  = asYear ? `$${p.yearPrice}` : p.priceLabel;
+        const per    = !p.price ? '' : asYear ? '/year' : '/month';
+        /* Anchoring the price against a single flip turns "another
+           subscription" into "does this find me one more sale a year". The
+           $40 figure is a plain example, not a promise. */
+        const months = p.price ? Math.round(40 / p.price) : 0;
+        return `<div class="pprice"><span class="v">${esc(shown)}</span>${per ? `<span class="p">${per}</span>` : ''}</div>
+          ${p.price ? `<div style="font-size:12.5px;color:var(--acc-hi);font-weight:650;margin-bottom:4px">
+            One $40 flip covers ${asYear ? 'the year' : `~${months} months`}</div>` : ''}`;
+      })()}
       <div>${p.features.map(f => `<div class="plan-feat">
         <svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>${esc(f)}</span></div>`).join('')}</div>
       <div style="margin-top:18px">
@@ -1420,15 +1713,16 @@ async function renderPlans() {
           : p.id === 'free'
             ? `<button class="btn btn-ghost" style="height:48px" disabled>Included</button>`
             : `<button class="btn ${p.popular ? 'btn-acc' : 'btn-solid'}" style="height:48px"
-                 onclick="startCheckout('${p.id}')">Get ${esc(p.name)}</button>`}
+                 onclick="startCheckout('${planCycle === 'year' && p.yearAvailable ? p.id + '_year' : p.id}')">Get ${esc(p.name)}</button>`}
       </div>
     </div>`;
   }).join('');
 
   document.getElementById('planFoot').innerHTML = `
     <p style="font-size:12.5px;color:var(--dim);line-height:1.65;margin-top:18px;text-align:center">
-      Plans renew monthly and can be cancelled any time from this screen.
-      Scan allowances reset every 30 days from the day you subscribe.</p>
+      Valuations come from recent <b style="color:var(--mut)">sold</b> prices, not what other
+      sellers are asking. Plans can be cancelled any time from this screen, and
+      scan allowances reset every 30 days from the day you subscribe.</p>
     ${!billingReady ? `<div class="card tight" style="margin-top:14px;font-size:13px;color:var(--mut);line-height:1.55">
       <b style="color:var(--amb)">Checkout is not switched on yet</b><br>
       Add your Stripe keys and price IDs to the server, then these buttons go live.
@@ -1474,10 +1768,25 @@ function showPaywall(kind) {
       </div>
       <button class="btn btn-acc" onclick="closeSheet();go('plan')">See plans</button>
       <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet();copyCurrentListing()">Copy it and list manually</button>`;
+  } else if (kind === 'quota' && !me.signedIn) {
+    /* An anonymous visitor is not out of options — signing up genuinely gives
+       them another scan, and asking for an email is a far smaller step than
+       asking for a card. Showing them a price here would be both pushier and
+       less accurate. */
+    b.innerHTML = `
+      <h3>Get another free scan</h3>
+      <p>Create an account and your next scan is on us. No password, no card — just an email and a six-digit code.</p>
+      <button class="btn btn-acc" onclick="closeSheet();requireAccount()">Create an account</button>
+      <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet()">Not now</button>`;
   } else if (kind === 'quota') {
     b.innerHTML = `
-      <h3>That's your free scan used</h3>
-      <p>The free plan includes one scan a month. ${me.signedIn ? '' : 'Create an account and'} pick a plan to keep going — Starter is ${esc(starter.priceLabel)} a month for ten.</p>
+      <h3>Keep scanning for ${esc(starter.priceLabel)} a month</h3>
+      <p>Ten scans a month, automatic eBay listing, and inventory tracking. One decent flip covers most of a year.</p>
+      <div class="card tight" style="margin-bottom:16px">
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 scans a month</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>One-tap eBay listing, no per-listing fee</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Cancel any time</span></div>
+      </div>
       <button class="btn btn-acc" onclick="closeSheet();go('plan')">See plans</button>
       <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet()">Not now</button>`;
   }
@@ -1535,15 +1844,39 @@ function renderPhotoGrid() {
 function removePhoto(i) { photos.splice(i, 1); renderPhotoGrid(); haptic(); }
 
 function startScan() {
+  viewingExample = false;
   if (!me.unlimited && me.scansLeft <= 0) return showPaywall('quota');
   photos = []; current = null; listings = {};
   document.getElementById('scanNotes').value = '';
-  hideErr('scanErr'); renderPhotoGrid();
+  hideErr('scanErr'); renderPhotoGrid(); renderPhotoTip();
   navStack = ['home'];
   go('scan', { replace: true });
 }
 
 /* ═════════════════════════ SCAN ANIMATION ═════════════════════════ */
+/* Poor photos produce hedged valuations and a low priceConfidence, and users
+   read that as the app being inaccurate rather than the photo being dark. The
+   results screen already says "reshoot in daylight" — saying it beforehand is
+   worth more, and costs a scan less. Shown once, then dismissed for good. */
+function renderPhotoTip() {
+  const el = document.getElementById('photoTip');
+  if (!el) return;
+  if (store('photoTipSeen')) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="card tight" style="margin-bottom:14px;border-color:rgba(168,85,247,.28)">
+    <div style="display:flex;align-items:flex-start;gap:11px">
+      <svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:var(--acc-hi);fill:none;stroke-width:2;
+           stroke-linecap:round;flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
+      <div style="flex:1">
+        <div style="font-size:13.5px;font-weight:750;letter-spacing:-.01em">Better photos, better price</div>
+        <div style="font-size:12.5px;color:var(--mut);line-height:1.55;margin-top:4px">
+          Daylight, plain background, one angle per photo. Include tags, labels and any flaws —
+          they set the condition grade.</div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:11px;height:36px;font-size:12.5px"
+          onclick="store('photoTipSeen',1);renderPhotoTip()">Got it</button>
+      </div>
+    </div></div>`;
+}
+
 function startScanAnim() {
   const box = document.getElementById('nodes'); box.innerHTML = '';
   for (let i = 0; i < 14; i++) {
@@ -1670,7 +2003,10 @@ function renderResults(d) {
   ].map(([k, nm, sd, pr]) => `<button class="strat${strategy === k ? ' on' : ''}" onclick="setStrategy('${k}')">
       <div class="sp">${money(pr)}</div><div class="sn">${nm}</div><div class="sd">${sd}</div></button>`).join('');
 
-  document.getElementById('netVal').textContent = money(netFromPrice('ebay', priceFor(d)));
+  const net = netFromPrice('ebay', priceFor(d));
+  document.getElementById('netVal').textContent = money(net);
+  renderSellNote(net);
+  renderExampleState();
 
   /* condition — a gauge, matching the four metric gauges */
   document.getElementById('condGrade').textContent = d.conditionGrade || '—';
@@ -1710,6 +2046,69 @@ function renderResults(d) {
       }, 280 + i*100));
     }, 160);
   }));
+}
+
+/* The moment the user learns what they keep is the moment automatic listing is
+   worth the most to them — so the offer belongs here, not on the Plan tab.
+   The arithmetic is theirs anyway: this just does it out loud. Shown only to
+   people who cannot already auto-list, so it never nags a paying customer. */
+/* In example mode the two destructive-ish actions — save to inventory, start a
+   listing — are replaced. Saving a demo item into someone's real inventory, or
+   opening a listing editor for shoes they do not own, would both be small
+   betrayals of a screen whose whole job is to be a preview. */
+function renderExampleState() {
+  const bar = document.getElementById('exampleBar');
+  const acts = document.getElementById('resActions');
+  if (!bar) return;
+
+  if (!viewingExample) {
+    bar.innerHTML = '';
+    if (acts) acts.innerHTML = `
+      <button class="btn btn-ebay" onclick="toListing()">
+        <svg viewBox="0 0 24 24"><path d="M3 9h18M3 9l2-4h14l2 4M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M9 13h6"/></svg>
+        List it on eBay
+      </button>
+      <div class="btn-row" style="margin-top:10px">
+        <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="saveDraft()">Save draft</button>
+        <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="startScan()">Scan another</button>
+      </div>`;
+    return;
+  }
+
+  bar.innerHTML = `<div class="ex-bar">
+    <span class="d"></span>
+    <span class="t">Example report</span>
+    <span class="s">Illustrative figures</span>
+  </div>`;
+  if (acts) acts.innerHTML = `
+    <button class="btn btn-acc" onclick="viewingExample=false;startScan()">
+      <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
+      Scan your own item
+    </button>
+    <div class="btn-row" style="margin-top:10px">
+      <button class="btn btn-ghost btn-sm" style="flex:1;height:50px" onclick="viewingExample=false;tabTo('home')">Back to home</button>
+    </div>`;
+}
+
+function renderSellNote(net) {
+  const el = document.getElementById('resUpsell');
+  if (!el) return;
+  if (me.autoList || me.unlimited) { el.innerHTML = ''; return; }
+
+  const starter = PLANS.find(p => p.id === 'starter');
+  const price = starter?.price || 3.99;
+  const label = starter?.priceLabel || '$3.99';
+  const months = Math.floor((net || 0) / price);
+
+  el.innerHTML = `<div class="sell-note">
+    <div class="sn-t">Skip the listing form</div>
+    <div class="sn-s">Starter publishes this to eBay for you — title, description, condition,
+      photos and price — for ${esc(label)} a month.</div>
+    ${months >= 2 ? `<div class="sn-roi">This one sale covers ${months >= 12
+        ? `${Math.floor(months / 12)} year${months >= 24 ? 's' : ''}`
+        : `${months} months`} of it</div>` : ''}
+    <button class="btn btn-acc" style="margin-top:15px;height:48px" onclick="go('plan')">See plans</button>
+  </div>`;
 }
 
 /* Potential turns the score from a verdict into a to-do list. Every point is
@@ -2061,7 +2460,67 @@ async function connectEbay() {
 }
 
 /* ═════════════════════════════ SHEETS ═════════════════════════════ */
-const openSheet = () => { document.getElementById('sheet').classList.add('show'); document.getElementById('sheetBg').classList.add('show'); };
+const openSheet = () => {
+  const sh = document.getElementById('sheet');
+  sh.style.transform = '';
+  sh.classList.add('show');
+  document.getElementById('sheetBg').classList.add('show');
+};
+
+/* Drag-to-dismiss.
+
+   A bottom sheet that can only be closed by a button is a desktop dialog
+   wearing a phone's clothes — the handle is a promise the interface has to
+   keep. Dismissal is decided on velocity OR distance, not distance alone: a
+   quick flick should close it even if the finger barely moved, which is how
+   every native sheet behaves and what people are unconsciously testing for.
+
+   Dragging is only started from the handle or from a sheet scrolled to the
+   top, so a sheet with scrollable content still scrolls normally. */
+(function sheetDrag() {
+  const sheet = () => document.getElementById('sheet');
+  let startY = 0, lastY = 0, lastT = 0, dy = 0, active = false;
+
+  const onDown = e => {
+    const sh = sheet();
+    if (!sh.classList.contains('show')) return;
+    const fromHandle = e.target.closest('.grab');
+    if (!fromHandle && sh.scrollTop > 0) return;
+    active = true; dy = 0;
+    startY = lastY = e.touches ? e.touches[0].clientY : e.clientY;
+    lastT = performance.now();
+    sh.classList.add('dragging');
+  };
+
+  const onMove = e => {
+    if (!active) return;
+    const y = e.touches ? e.touches[0].clientY : e.clientY;
+    dy = y - startY;
+    if (dy < 0) dy = dy / 6;          // resistance when pulled past the top
+    lastY = y; lastT = performance.now();
+    sheet().style.transform = `translateY(${dy}px)`;
+  };
+
+  const onUp = () => {
+    if (!active) return;
+    active = false;
+    const sh = sheet();
+    sh.classList.remove('dragging');
+    const velocity = (lastY - startY) / Math.max(1, performance.now() - lastT + 120);
+    if (dy > sh.offsetHeight * 0.28 || velocity > 0.55) {
+      sh.style.transform = '';
+      closeSheet();
+      haptic();
+    } else {
+      sh.style.transform = '';           // springs back via the CSS transition
+    }
+  };
+
+  document.addEventListener('touchstart', onDown, { passive: true });
+  document.addEventListener('touchmove',  onMove, { passive: true });
+  document.addEventListener('touchend',   onUp);
+  document.addEventListener('touchcancel', onUp);
+})();
 const closeSheet = () => { document.getElementById('sheet').classList.remove('show'); document.getElementById('sheetBg').classList.remove('show'); };
 
 function showSheet(kind, data = {}) {
@@ -2130,6 +2589,7 @@ function renderInventory() {
   </div>`).join('');
 }
 function openItem(id) {
+  viewingExample = false;
   viewingItem = inventory.find(i => i.id === id);
   if (!viewingItem) return;
   const d = viewingItem.data;
@@ -2186,6 +2646,10 @@ function renderHome() {
   document.getElementById('trendRail').innerHTML = TRENDS.map(t =>
     imgTile(t, '', `<span class="cap">${t.name}<span class="s">${t.sub}</span></span>`)).join('');
 
+  /* Only worth offering while they have nothing of their own to look at. */
+  const ex = document.getElementById('heroExample');
+  if (ex) ex.style.display = inventory.length ? 'none' : '';
+
   const art = document.getElementById('heroArt');
   if (art && !art.childElementCount) art.innerHTML = [TRENDS[0], TRENDS[2], TRENDS[5]].map(t => imgTile(t)).join('');
 
@@ -2211,12 +2675,20 @@ function renderHome() {
   }
 
   /* Signed-out visitors get one nudge at the bottom, not a wall on arrival. */
+  /* Anonymous and signed-in free users are counted separately on the server,
+     so making an account really does hand over another scan. That is concrete
+     and immediate; "saves your history" is neither, and it was what this card
+     used to lead with. Only ever promise the extra scan while one is actually
+     still available to give. */
+  const stale = !me.signedIn && inventory.length >= 2;
   document.getElementById('homeUpsell').innerHTML = me.signedIn ? '' : `
-    <div class="card" style="margin-top:26px;text-align:center">
-      <div style="font-size:16px;font-weight:750;letter-spacing:-.03em">Keep your scans</div>
-      <p style="font-size:13.5px;color:var(--mut);line-height:1.55;margin:7px 0 15px">
-        An account saves your history and unlocks one-tap listing. No password needed.</p>
-      <button class="btn btn-ghost btn-sm" style="margin:0 auto" onclick="requireAccount()">Create an account</button>
+    <div class="card lit" style="margin-top:26px;text-align:center">
+      <div style="font-size:17px;font-weight:800;letter-spacing:-.03em">Create an account, get another free scan</div>
+      <p style="font-size:13.5px;color:var(--mut);line-height:1.55;margin:8px 0 16px">
+        ${stale
+          ? `Your ${inventory.length} scans live only in this browser — clear it and they're gone. An account keeps them, and adds a scan.`
+          : 'No password. Just an email and a six-digit code.'}</p>
+      <button class="btn btn-acc" style="margin:0 auto;max-width:260px" onclick="requireAccount()">Create an account</button>
     </div>`;
 }
 
@@ -2383,7 +2855,7 @@ function showServerBanner() {
   if (OFFLINE_FILE) showServerBanner();
   else fetch(API + '/api/health').then(r => { if (!r.ok) throw 0; }).catch(showServerBanner);
 
-  await Promise.all([refreshMe(), loadPlans()]);
+  await Promise.all([refreshMe(), loadPlans(), loadAuthConfig()]);
   go('home', { replace: true });
 })();
 
