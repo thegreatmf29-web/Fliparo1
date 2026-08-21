@@ -1107,6 +1107,124 @@ app.get ('/api/plans',            (_req, res) => res.json(accounts.plansPayload(
 /* Answers "why didn't the email send?" without guesswork. Reports only whether
    things are configured and what the server got back — never the credentials
    themselves, so this is safe to open in a browser. */
+/* --------------------------------------------------------------------------
+   Create the three business policies
+   ----------------------------------------------------------------------------
+   eBay will not publish an offer without a payment, return and fulfillment
+   policy, and the page for creating them by hand moves around inside Seller
+   Hub. The Account API can create all three, so this does — including the
+   program opt-in, which is itself a prerequisite and easy to miss.
+
+   These are deliberately plain defaults. They are a starting point that lets
+   publishing work today; the seller can refine them in Seller Hub afterwards
+   and the ids stay the same.
+   -------------------------------------------------------------------------- */
+const POLICY_BODIES = {
+  payment: {
+    path: '/sell/account/v1/payment_policy',
+    key: 'paymentPolicyId',
+    body: {
+      name: 'Fliparo default payment',
+      marketplaceId: 'EBAY_US',
+      categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES' }],
+      immediatePay: true
+    }
+  },
+  return: {
+    path: '/sell/account/v1/return_policy',
+    key: 'returnPolicyId',
+    body: {
+      name: 'Fliparo default returns',
+      marketplaceId: 'EBAY_US',
+      categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES' }],
+      returnsAccepted: true,
+      returnPeriod: { value: 30, unit: 'DAY' },
+      returnShippingCostPayer: 'BUYER',
+      refundMethod: 'MONEY_BACK'
+    }
+  },
+  fulfillment: {
+    path: '/sell/account/v1/fulfillment_policy',
+    key: 'fulfillmentPolicyId',
+    body: {
+      name: 'Fliparo default shipping',
+      marketplaceId: 'EBAY_US',
+      categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES' }],
+      handlingTime: { value: 2, unit: 'DAY' },
+      shippingOptions: [{
+        optionType: 'DOMESTIC',
+        costType: 'FLAT_RATE',
+        shippingServices: [{
+          sortOrder: 1,
+          shippingCarrierCode: 'USPS',
+          shippingServiceCode: 'USPSGroundAdvantage',
+          shippingCost: { value: '0.00', currency: 'USD' },
+          freeShipping: true,
+          buyerResponsibleForShipping: false
+        }]
+      }]
+    }
+  }
+};
+
+app.post('/api/ebay/create-policies', async (req, res) => {
+  const deviceId = req.get('x-device-id') || 'anon';
+  try {
+    const token = await ebayToken(deviceId);
+
+    /* Business policies live behind a program opt-in. Opting in twice is
+       harmless and returns an error saying so, which is not a failure. */
+    let optIn = 'already opted in';
+    try {
+      await ebayFetch(token, '/sell/account/v1/program/opt_in', {
+        method: 'POST',
+        body: JSON.stringify({ programType: 'SELLING_POLICY_MANAGEMENT' })
+      });
+      optIn = 'opted in';
+    } catch (e) {
+      optIn = `opt-in returned: ${e.message}`;
+    }
+
+    const created = {};
+    const failed = {};
+
+    for (const [kind, spec] of Object.entries(POLICY_BODIES)) {
+      /* Never create a second copy of something that already exists. */
+      try {
+        const existing = await ebayFetch(token, `${spec.path}?marketplace_id=EBAY_US`);
+        const listKey = Object.keys(existing || {}).find(k => Array.isArray(existing[k]));
+        const first = listKey && existing[listKey][0];
+        if (first) { created[kind] = { id: first[spec.key], reused: true, name: first.name }; continue; }
+      } catch { /* fall through and try to create one */ }
+
+      try {
+        const made = await ebayFetch(token, spec.path, {
+          method: 'POST',
+          body: JSON.stringify(spec.body)
+        });
+        created[kind] = { id: made[spec.key], reused: false, name: spec.body.name };
+      } catch (e) {
+        failed[kind] = e.message;
+      }
+    }
+
+    res.json({
+      optIn,
+      created,
+      failed,
+      ok: Object.keys(failed).length === 0,
+      next: Object.keys(failed).length === 0
+        ? 'Run the setup check again to read the ids and get your Render lines.'
+        : 'Some policies could not be created — the messages above name the field eBay rejected.'
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({
+      error: e.message,
+      hint: 'Connect eBay in the app first (Profile → eBay).'
+    });
+  }
+});
+
 /* Why am I being asked to sign in again?
    ----------------------------------------------------------------------------
    A sign-in that appears to work but leaves you signed out has three possible
