@@ -728,6 +728,64 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .seg button.on{background:var(--card2);color:var(--fg);box-shadow:0 1px 5px rgba(0,0,0,.35)}
 
 /* publish steps */
+/* ── Writing the listing ───────────────────────────────────────────────────
+   Three grey skeleton bars said "something is loading" and nothing else. The
+   wait is several seconds of a model actually composing a title, specifics and
+   a description, so the placeholder now shows that happening: the item stays
+   on screen, the fields fill in the order they are written, and the caption
+   names the current stage. Same length of wait, and it reads as work. */
+@keyframes genFill{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+@keyframes genRise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes penNib{0%,100%{transform:translate(0,0) rotate(-8deg)}
+                  50%{transform:translate(3px,-2px) rotate(2deg)}}
+
+.gen{animation:genRise .4s var(--ease) both}
+.gen-head{display:flex;gap:14px;align-items:center;margin-bottom:22px}
+.gen-thumb{position:relative;width:58px;height:58px;border-radius:15px;overflow:hidden;flex:none;
+  background:var(--card2);border:1px solid var(--line)}
+.gen-thumb img{width:100%;height:100%;object-fit:cover}
+.gen-thumb .glow{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent,rgba(168,85,247,.45),transparent);
+  animation:sweep 1.9s ease-in-out infinite}
+.gen-pen{width:20px;height:20px;flex:none;stroke:var(--acc-hi);fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round;animation:penNib 1.5s ease-in-out infinite}
+.gen-t{font-size:16.5px;font-weight:800;letter-spacing:-.03em;display:flex;align-items:center;gap:8px}
+.gen-s{font-size:12.5px;color:var(--mut);margin-top:4px;transition:opacity .25s}
+
+.gen-field{margin-bottom:16px;opacity:.28;transition:opacity .45s var(--ease)}
+.gen-field.on{opacity:1}
+/* Written already: readable, but without the shimmer that means "in progress".
+   Without this a finished field looks exactly like one not started. */
+.gen-field.done{opacity:.8}
+.gen-label{font-size:11px;font-weight:750;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--dim);margin-bottom:7px}
+.gen-bar{height:12px;border-radius:6px;background:var(--card2);overflow:hidden;position:relative;
+  margin-bottom:7px}
+.gen-bar:last-child{margin-bottom:0}
+.gen-field.on .gen-bar::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(168,85,247,.5),transparent);
+  animation:genFill 1.25s linear infinite}
+.gen-field.done .gen-bar{background:linear-gradient(90deg,var(--acc-dim),var(--card2))}
+.gen-field.done .gen-bar::after{display:none}
+
+/* ── Listing photos ─────────────────────────────────────────────────────── */
+.lphotos{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:8px}
+.lphoto{position:relative;aspect-ratio:1;border-radius:11px;overflow:hidden;
+  background:var(--card2);border:1px solid var(--line)}
+.lphoto img{width:100%;height:100%;object-fit:cover}
+.lphoto .del{position:absolute;top:3px;right:3px;width:22px;height:22px;border-radius:50%;
+  border:0;background:rgba(6,6,10,.72);display:grid;place-items:center;cursor:pointer;padding:0}
+.lphoto .del svg{width:11px;height:11px;stroke:#fff;fill:none;stroke-width:2.4;stroke-linecap:round}
+.lphoto .cover{position:absolute;left:0;right:0;bottom:0;padding:3px 0;text-align:center;
+  font-size:9.5px;font-weight:750;letter-spacing:.06em;text-transform:uppercase;
+  background:rgba(6,6,10,.72);color:#fff}
+.lphoto.add{display:grid;place-items:center;gap:3px;border-style:dashed;cursor:pointer;
+  border-color:var(--line2);align-content:center}
+.lphoto.add svg{width:19px;height:19px;stroke:var(--mut);fill:none;stroke-width:2;stroke-linecap:round}
+.lphoto.add span{font-size:10.5px;color:var(--mut);font-weight:650}
+.lphoto.add:hover{border-color:var(--acc);}
+.lphoto.add:hover svg{stroke:var(--acc-hi)}
+
 /* ── Publishing ────────────────────────────────────────────────────────────
    The scan screen earns its wait with something to watch. Publishing takes
    about as long and had four grey dots, so it read as a hang. Same idea
@@ -2501,12 +2559,9 @@ async function initListing() {
 async function loadListing(platform, force = false) {
   hideErr('listErr');
   const body = document.getElementById('listBody');
-  if (listings[platform] && !force) return renderListing(platform);
+  if (listings[platform] && !force) { stopGenAnim(); return renderListing(platform); }
 
-  body.innerHTML = `<div class="skel" style="height:46px;margin-bottom:15px"></div>
-    <div class="skel" style="height:150px;margin-bottom:15px"></div>
-    <div class="skel" style="height:46px"></div>
-    <div style="text-align:center;color:var(--mut);font-size:13.5px;margin-top:18px">Writing your ${PLATFORMS[platform].name} listing…</div>`;
+  startGenAnim(platform);
   try {
     const r = await fetch(API + '/api/listing', {
       method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
@@ -2516,10 +2571,81 @@ async function loadListing(platform, force = false) {
     if (!r.ok) throw new Error(j.error || 'Could not write the listing.');
     j.suggestedPrice = j.suggestedPrice || priceFor(current);
     listings[platform] = j;
+    stopGenAnim();
     renderListing(platform);
-  } catch (e) { body.innerHTML = ''; showErr('listErr', friendlyError(e)); }
+  } catch (e) { stopGenAnim(); body.innerHTML = ''; showErr('listErr', friendlyError(e)); }
 }
 const regenListing = () => activeListPlatform && loadListing(activeListPlatform, true);
+
+/* The placeholder shown while the model writes the listing. The stages are the
+   real order the fields get written in, so the animation is a description of
+   what is happening rather than decoration. It runs until the fetch replaces
+   the whole container, and the interval is cleared on the way out so a slow
+   response cannot leave a timer running behind the next screen. */
+let _genTimer = null;
+
+const GEN_STAGES = [
+  { field: 0, s: 'Reading your photos…' },
+  { field: 0, s: 'Matching recent sold listings…' },
+  { field: 1, s: 'Writing a search-friendly title…' },
+  { field: 2, s: 'Filling in item specifics…' },
+  { field: 3, s: 'Describing the condition honestly…' },
+  { field: 3, s: 'Setting the asking price…' }
+];
+
+function stopGenAnim() { if (_genTimer) { clearInterval(_genTimer); _genTimer = null; } }
+
+function startGenAnim(platform) {
+  stopGenAnim();
+  const shot = current?.photos?.[0] || photos?.[0] || '';
+  const name = current?.productName || 'your item';
+
+  document.getElementById('listBody').innerHTML = `
+    <div class="gen">
+      <div class="gen-head">
+        <div class="gen-thumb">${shot ? `<img src="${shot}" alt="">` : ''}<div class="glow"></div></div>
+        <div style="min-width:0">
+          <div class="gen-t">
+            <svg class="gen-pen" viewBox="0 0 24 24"><path d="M4 20l4-1 11-11a2.1 2.1 0 10-3-3L5 16z"/><path d="M14.5 5.5l3 3"/></svg>
+            Writing your ${esc(PLATFORMS[platform].name)} listing
+          </div>
+          <div class="gen-s" id="genStage">${esc(GEN_STAGES[0].s)}</div>
+        </div>
+      </div>
+
+      <div class="gen-field" id="gf-0"><div class="gen-label">Photos</div>
+        <div class="gen-bar" style="width:82%"></div></div>
+      <div class="gen-field" id="gf-1"><div class="gen-label">Title</div>
+        <div class="gen-bar"></div><div class="gen-bar" style="width:64%"></div></div>
+      <div class="gen-field" id="gf-2"><div class="gen-label">Item specifics</div>
+        <div class="gen-bar" style="width:46%"></div><div class="gen-bar" style="width:71%"></div></div>
+      <div class="gen-field" id="gf-3"><div class="gen-label">Description</div>
+        <div class="gen-bar"></div><div class="gen-bar"></div><div class="gen-bar" style="width:38%"></div></div>
+
+      <div style="text-align:center;font-size:12px;color:var(--dim);margin-top:20px">
+        ${esc(name)}
+      </div>
+    </div>`;
+
+  let i = 0;
+  const paint = () => {
+    const st = GEN_STAGES[i];
+    const label = document.getElementById('genStage');
+    if (!label) return stopGenAnim();          // screen moved on beneath us
+    label.textContent = st.s;
+    for (let f = 0; f < 4; f++) {
+      const el = document.getElementById('gf-' + f);
+      if (!el) continue;
+      el.classList.toggle('on', f === st.field);
+      el.classList.toggle('done', f < st.field);
+    }
+    /* Hold on the last stage rather than looping back to "reading photos",
+       which would suggest it had started over. */
+    if (i < GEN_STAGES.length - 1) i++;
+  };
+  paint();
+  _genTimer = setInterval(paint, 1100);
+}
 
 function netFromPrice(platform, price) {
   const F = { ebay:{p:.1335,f:.40} }[platform];
@@ -2608,6 +2734,10 @@ function renderListing(platform) {
       <input class="inp" id="lCond" value="${esc(l.conditionLabel || current.conditionGrade || '')}">
     </div>
     <div class="field">
+      <label>Photos <span class="cnt" id="lPhotoCnt">${listingPhotos().length}/12 · first one is the gallery image</span></label>
+      <div class="lphotos" id="lPhotoGrid"></div>
+    </div>
+    <div class="field">
       <label>Description</label>
       <textarea class="inp" id="lDesc">${esc(l.description)}</textarea>
     </div>
@@ -2631,6 +2761,116 @@ function renderListing(platform) {
         : `<svg viewBox="0 0 24 24"><path d="M4 12l5 5L20 7"/></svg>Publish to eBay`}
     </button>
     <div style="height:30px"></div>`;
+
+  renderListingPhotos();
+}
+
+/* ── Photos on the listing screen ──────────────────────────────────────────
+   The scan needs only enough angles to identify and grade the item; a listing
+   sells better with more — the box, the label, the flaw a buyer would open a
+   case over. So photos can be added here too, after the valuation, without
+   re-running a scan against the quota.
+
+   `current.photos` is the single source of truth once a scan exists, because
+   that is what publish reads. Any change clears hostedImageUrls so the next
+   publish re-uploads rather than reusing a stale set that is missing them. */
+const LISTING_MAX_PHOTOS = 12;
+
+function listingPhotos() {
+  if (current && Array.isArray(current.photos)) return current.photos;
+  return photos;
+}
+
+function renderListingPhotos() {
+  const g = document.getElementById('lPhotoGrid');
+  if (!g) return;
+  const list = listingPhotos();
+
+  let html = list.map((p, i) => `
+    <div class="lphoto">
+      <img src="${p}" alt="">
+      <button class="del" onclick="removeListingPhoto(${i})" aria-label="Remove photo ${i + 1}">
+        <svg viewBox="0 0 24 24"><path d="M18 6L6 18M6 6l12 12"/></svg></button>
+      ${i === 0 ? '<span class="cover">Cover</span>' : ''}
+    </div>`).join('');
+
+  if (list.length < LISTING_MAX_PHOTOS) {
+    html += `<button class="lphoto add" onclick="addListingPhotos()">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Add</span></button>`;
+  }
+  g.innerHTML = html;
+
+  const cnt = document.getElementById('lPhotoCnt');
+  if (cnt) cnt.textContent = `${list.length}/${LISTING_MAX_PHOTOS} · first one is the gallery image`;
+}
+
+/* A second hidden input so adding photos here cannot interfere with the scan
+   screen's own picker, which has a different change handler bound to it. */
+const listFileEl = (() => {
+  const el = document.createElement('input');
+  el.type = 'file'; el.accept = 'image/*'; el.multiple = true; el.hidden = true;
+  el.addEventListener('change', e => {
+    const room = LISTING_MAX_PHOTOS - listingPhotos().length;
+    [...(e.target.files || [])].slice(0, room).forEach(loadListingImage);
+    e.target.value = '';
+  });
+  document.body.appendChild(el);
+  return el;
+})();
+
+const addListingPhotos = () => listFileEl.click();
+
+function loadListingImage(file) {
+  const fr = new FileReader();
+  fr.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      /* Same downscale as the scan path: eBay caps what it will fetch, and a
+         12MP phone photo is pointless at listing resolution. */
+      const MAX = 1400;
+      let { width: w, height: h } = img;
+      if (w > MAX || h > MAX) { const r = Math.min(MAX / w, MAX / h); w = Math.round(w * r); h = Math.round(h * r); }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      pushListingPhoto(c.toDataURL('image/jpeg', .86));
+    };
+    img.onerror = () => showErr('listErr', 'That file could not be read as an image. Try a JPG or PNG.');
+    img.src = ev.target.result;
+  };
+  fr.readAsDataURL(file);
+}
+
+function pushListingPhoto(dataUrl) {
+  if (current) {
+    if (!Array.isArray(current.photos)) current.photos = [];
+    current.photos.push(dataUrl);
+  } else {
+    photos.push(dataUrl);
+  }
+  invalidateHostedPhotos();
+  renderListingPhotos();
+  hideErr('listErr');
+  haptic();
+}
+
+function removeListingPhoto(i) {
+  const list = listingPhotos();
+  if (list.length <= 1) return showErr('listErr', 'A listing needs at least one photo.');
+  list.splice(i, 1);
+  invalidateHostedPhotos();
+  renderListingPhotos();
+  haptic();
+}
+
+function invalidateHostedPhotos() {
+  if (current) delete current.hostedImageUrls;
+  /* Keep the saved copy in step so a draft reopened later has the new set. */
+  const i = current ? inventory.findIndex(x => x.id === current.id) : -1;
+  if (i >= 0) { inventory[i].data = current; inventory[i].photo = listingPhotos()[0]; store('inventory', inventory); }
 }
 
 function onTitleInput(limit) {
