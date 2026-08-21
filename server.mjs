@@ -1146,26 +1146,45 @@ const POLICY_BODIES = {
   fulfillment: {
     path: '/sell/account/v1/fulfillment_policy',
     key: 'fulfillmentPolicyId',
-    body: {
-      name: 'Fliparo default shipping',
-      marketplaceId: 'EBAY_US',
-      categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES' }],
-      handlingTime: { value: 2, unit: 'DAY' },
-      shippingOptions: [{
-        optionType: 'DOMESTIC',
-        costType: 'FLAT_RATE',
-        shippingServices: [{
-          sortOrder: 1,
-          shippingCarrierCode: 'USPS',
-          shippingServiceCode: 'USPSGroundAdvantage',
-          shippingCost: { value: '0.00', currency: 'USD' },
-          freeShipping: true,
-          buyerResponsibleForShipping: false
-        }]
-      }]
-    }
+    /* Built per-attempt — see SHIPPING_CANDIDATES below. */
+    body: null
   }
 };
+
+/* Valid shipping service codes are per-marketplace, change over time, and are
+   not exposed by any REST endpoint we can query — eBay simply rejects an
+   unknown one with UNKNOWN_SHIPPING_SERVICE_CODE and no list of alternatives.
+   So try the plausible ones in order and keep the first eBay accepts. The
+   carrier code is deliberately omitted: eBay derives it from the service, and
+   supplying a mismatched pair is its own error. */
+const SHIPPING_CANDIDATES = [
+  'USPSGroundAdvantage',
+  'USPSPriority',
+  'USPSParcel',
+  'USPSFirstClass',
+  'UPSGround',
+  'FedExHomeDelivery',
+  'ShippingMethodStandard',
+  'Other'
+];
+
+const fulfillmentBody = serviceCode => ({
+  name: 'Fliparo default shipping',
+  marketplaceId: 'EBAY_US',
+  categoryTypes: [{ name: 'ALL_EXCLUDING_MOTORS_VEHICLES' }],
+  handlingTime: { value: 2, unit: 'DAY' },
+  shippingOptions: [{
+    optionType: 'DOMESTIC',
+    costType: 'FLAT_RATE',
+    shippingServices: [{
+      sortOrder: 1,
+      shippingServiceCode: serviceCode,
+      shippingCost: { value: '0.00', currency: 'USD' },
+      freeShipping: true,
+      buyerResponsibleForShipping: false
+    }]
+  }]
+});
 
 app.post('/api/ebay/create-policies', async (req, res) => {
   const deviceId = req.get('x-device-id') || 'anon';
@@ -1222,6 +1241,30 @@ app.post('/api/ebay/create-policies', async (req, res) => {
         const first = listKey && existing[listKey][0];
         if (first) { created[kind] = { id: first[spec.key], reused: true, name: first.name }; continue; }
       } catch { /* fall through and try to create one */ }
+
+      if (kind === 'fulfillment') {
+        /* Walk the candidate service codes; stop at the first that is accepted. */
+        const tried = [];
+        let done = false;
+        for (const code of SHIPPING_CANDIDATES) {
+          try {
+            const made = await ebayFetch(token, spec.path, {
+              method: 'POST',
+              body: JSON.stringify(fulfillmentBody(code))
+            });
+            created[kind] = { id: made[spec.key], reused: false, name: `Fliparo default shipping (${code})`, serviceCode: code };
+            done = true;
+            break;
+          } catch (e) {
+            tried.push(`${code}: ${e.message}`);
+            /* Anything that is not "that code does not exist" will fail for
+               every code, so stop rather than making seven identical calls. */
+            if (!/UNKNOWN_SHIPPING_SERVICE_CODE|LOGISTICS_INFO_IS_MISSING/i.test(e.message)) break;
+          }
+        }
+        if (!done) failed[kind] = tried.join(' | ');
+        continue;
+      }
 
       try {
         const made = await ebayFetch(token, spec.path, {
