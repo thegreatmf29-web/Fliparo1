@@ -3587,7 +3587,9 @@ async function createEbayPolicies() {
     }
 
     const made = Object.entries(j.created || {})
-      .map(([k, v]) => `${k}: ${v.reused ? 'already existed' : 'created'}`).join('<br>');
+      .map(([k, v]) => `${k}: ${v.reused ? 'already existed' : 'created'}`
+        + (v.serviceCode ? ` <span style="color:var(--dim)">(${esc(v.serviceCode)})</span>` : ''))
+      .join('<br>');
     const bad = Object.entries(j.failed || {})
       .map(([k, m]) => `<b style="color:var(--fg)">${esc(k)}</b> — ${esc(m)}`).join('<br>');
 
