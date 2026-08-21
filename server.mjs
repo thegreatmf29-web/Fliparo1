@@ -1015,7 +1015,9 @@ app.get('/api/ebay/setup-check', async (req, res) => {
   } catch (e) {
     res.status(e.status || 500).json({
       error: e.message,
-      hint: 'Connect eBay in the app first (Profile → eBay), then open this URL in the same browser.'
+      hint: 'This endpoint identifies you by the x-device-id header, which a browser address bar '
+          + 'never sends — so opening the URL directly always lands here. Run it from the app instead: '
+          + 'Profile → Settings → Diagnostics → eBay setup check.'
     });
   }
 });
