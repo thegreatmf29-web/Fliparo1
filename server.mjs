@@ -747,9 +747,33 @@ async function ebayFetch(token, endpoint, opts = {}) {
   const body = await r.text();
   let json = null; try { json = body ? JSON.parse(body) : null; } catch {}
   if (!r.ok) {
-    const msg = json?.errors?.[0]?.message || json?.message || `eBay error ${r.status}`;
-    const detail = json?.errors?.[0]?.longMessage;
-    throw Object.assign(new Error(detail ? `${msg} — ${detail}` : msg), { status: r.status });
+    /* eBay's top-level message for a rejected body is "Invalid request — The
+       request has errors", which names nothing. What is actually wrong lives in
+       errors[].parameters (the offending field) and in the second and later
+       entries of errors[]. Flatten all of it into the thrown message, and log
+       the raw payload, so a failed publish points at a field instead of at the
+       documentation. */
+    const errs = Array.isArray(json?.errors) ? json.errors : [];
+
+    const described = errs.map(e => {
+      const params = (e.parameters || [])
+        .map(p => `${p.name}=${p.value}`)
+        .join(', ');
+      const text = e.longMessage || e.message || `error ${e.errorId}`;
+      return params ? `${text} (${params})` : text;
+    });
+
+    const msg = described.length
+      ? described.join(' · ')
+      : (json?.message || `eBay error ${r.status}`);
+
+    console.error('[ebay]', opts.method || 'GET', endpoint, r.status, JSON.stringify(json));
+
+    throw Object.assign(new Error(msg), {
+      status: r.status,
+      ebayErrors: errs,
+      errorIds: errs.map(e => e.errorId)
+    });
   }
   return json;
 }
@@ -768,6 +792,25 @@ app.post('/api/ebay/publish', async (req, res) => {
 
     const { item, listing, imageUrls = [] } = req.body;
     if (!item || !listing) return res.status(400).json({ error: 'Missing item or listing data.' });
+
+    /* Fail here rather than at eBay. An offer sent with an undefined policy id
+       loses the key entirely in JSON.stringify, and eBay answers with a bare
+       "Invalid request — The request has errors", naming nothing. Checking
+       first turns that dead end into an instruction. */
+    const missingCfg = [
+      ['EBAY_FULFILLMENT_POLICY_ID', process.env.EBAY_FULFILLMENT_POLICY_ID],
+      ['EBAY_PAYMENT_POLICY_ID',     process.env.EBAY_PAYMENT_POLICY_ID],
+      ['EBAY_RETURN_POLICY_ID',      process.env.EBAY_RETURN_POLICY_ID]
+    ].filter(([, v]) => !v).map(([k]) => k);
+
+    if (missingCfg.length) {
+      return res.status(400).json({
+        code: 'EBAY_POLICIES_MISSING',
+        error: `eBay business policies are not configured on the server (${missingCfg.join(', ')}). `
+             + 'Open /api/ebay/setup-check while signed in — it reads the ids off your eBay account and prints them.',
+        missing: missingCfg
+      });
+    }
 
     const token = await ebayToken(deviceId);
     const sku = `FLIP-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
