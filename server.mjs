@@ -1062,6 +1062,59 @@ app.get ('/api/plans',            (_req, res) => res.json(accounts.plansPayload(
 /* Answers "why didn't the email send?" without guesswork. Reports only whether
    things are configured and what the server got back — never the credentials
    themselves, so this is safe to open in a browser. */
+/* Why am I being asked to sign in again?
+   ----------------------------------------------------------------------------
+   A sign-in that appears to work but leaves you signed out has three possible
+   causes and they are indistinguishable from the outside: the token failed its
+   signature check (SESSION_SECRET changed since it was issued), the database is
+   unreachable (so the account cannot be read back), or the account row is
+   genuinely absent. This says which. Safe to call signed-out. */
+app.get('/api/auth/whoami', async (req, res) => {
+  const raw = (req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+  const out = {
+    tokenSent: !!raw,
+    sessionSecretSet: !!process.env.SESSION_SECRET,
+    dbDriver: store.DRIVER
+  };
+
+  try {
+    await store.ready();
+    out.dbReachable = true;
+  } catch (e) {
+    out.dbReachable = false;
+    out.dbError = e.message;
+  }
+
+  if (raw) {
+    const email = accounts.readToken(raw);
+    out.tokenValid = !!email;
+    if (!email) {
+      out.diagnosis = out.sessionSecretSet
+        ? 'Token failed its signature check. SESSION_SECRET almost certainly changed after this token was issued — sign out and sign in again to get a fresh one.'
+        : 'Token failed its signature check and SESSION_SECRET is not set, so the secret is derived from ANTHROPIC_API_KEY. Rotating that key invalidates every session. Set SESSION_SECRET to a fixed random value.';
+    } else {
+      out.email = email;
+      try {
+        out.accountFound = !!(await store.getUser(email));
+        if (!out.accountFound) {
+          out.diagnosis = out.dbReachable
+            ? 'Token is valid but no account row exists for it. The account was never written, or the database was replaced.'
+            : 'Token is valid but the database is unreachable, so the account cannot be read. Check DATABASE_URL — a rotated database password is the usual cause.';
+        }
+      } catch (e) {
+        out.accountFound = false;
+        out.accountError = e.message;
+        out.diagnosis = 'Token is valid but reading the account threw. Check DATABASE_URL.';
+      }
+    }
+  }
+
+  if (!out.diagnosis) {
+    out.diagnosis = !raw ? 'No token sent — you are simply signed out.' : 'Everything checks out; you are signed in.';
+  }
+  res.json(out);
+});
+
 app.get('/api/auth/diagnose', async (_req, res) => {
  try {
   const out = {
