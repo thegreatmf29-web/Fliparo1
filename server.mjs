@@ -885,6 +885,99 @@ app.post('/api/depop/publish', async (req, res) => {
 });
 
 /* --------------------------------------------------------------------------
+   eBay one-time setup check
+   ----------------------------------------------------------------------------
+   Publishing needs four values that live in environment variables: three
+   business policy ids and a merchant location key. Reading them out of eBay
+   normally means hand-rolling authenticated calls with a bearer token, which is
+   an unpleasant way to start.
+
+   This route does it for you. Connect eBay in the app first, then open:
+
+     /api/ebay/setup-check?zip=97205&state=OR&city=Portland
+
+   It reports which policies exist, creates the inventory location if it is
+   missing, and prints the exact lines to paste into your host's environment.
+   It only reads and creates the location — it publishes nothing.
+   -------------------------------------------------------------------------- */
+app.get('/api/ebay/setup-check', async (req, res) => {
+  const deviceId = req.get('x-device-id') || req.query.device || 'anon';
+
+  try {
+    const token = await ebayToken(deviceId);
+    const mp = 'marketplace_id=EBAY_US';
+
+    const [ful, pay, ret] = await Promise.all([
+      ebayFetch(token, `/sell/account/v1/fulfillment_policy?${mp}`).catch(e => ({ _err: e.message })),
+      ebayFetch(token, `/sell/account/v1/payment_policy?${mp}`).catch(e => ({ _err: e.message })),
+      ebayFetch(token, `/sell/account/v1/return_policy?${mp}`).catch(e => ({ _err: e.message }))
+    ]);
+
+    const first = (o, k) => (o && !o._err && Array.isArray(o[k]) && o[k][0]) || null;
+    const f = first(ful, 'fulfillmentPolicies');
+    const p = first(pay, 'paymentPolicies');
+    const r = first(ret, 'returnPolicies');
+
+    /* Inventory locations have no Seller Hub screen — they exist only through
+       the API — so create one rather than sending you looking for a page that
+       is not there. */
+    const key = process.env.EBAY_MERCHANT_LOCATION_KEY || 'default-location';
+    let location = 'exists';
+    try {
+      await ebayFetch(token, `/sell/inventory/v1/location/${encodeURIComponent(key)}`);
+    } catch (e) {
+      if (e.status !== 404) {
+        location = `error: ${e.message}`;
+      } else if (!req.query.zip) {
+        location = 'missing — re-open this URL with ?zip=YOURZIP&state=XX&city=Yourtown to create it';
+      } else {
+        try {
+          await ebayFetch(token, `/sell/inventory/v1/location/${encodeURIComponent(key)}`, {
+            method: 'POST',
+            body: JSON.stringify({
+              location: { address: {
+                city: req.query.city || '', stateOrProvince: req.query.state || '',
+                postalCode: String(req.query.zip), country: req.query.country || 'US'
+              } },
+              locationTypes: ['WAREHOUSE'],
+              merchantLocationStatus: 'ENABLED'
+            })
+          });
+          location = 'created';
+        } catch (e2) { location = `could not create: ${e2.message}`; }
+      }
+    }
+
+    const missing = [];
+    if (!f) missing.push('fulfillment (shipping) policy');
+    if (!p) missing.push('payment policy');
+    if (!r) missing.push('return policy');
+
+    res.json({
+      ready: !missing.length && (location === 'exists' || location === 'created'),
+      missingPolicies: missing,
+      hint: missing.length
+        ? 'Create these in Seller Hub → Account → Business Policies, then reload this URL.'
+        : 'Paste the four lines in envToSet into your host environment, then redeploy.',
+      merchantLocation: { key, status: location },
+      envToSet: {
+        EBAY_FULFILLMENT_POLICY_ID: f?.fulfillmentPolicyId || null,
+        EBAY_PAYMENT_POLICY_ID:     p?.paymentPolicyId     || null,
+        EBAY_RETURN_POLICY_ID:      r?.returnPolicyId      || null,
+        EBAY_MERCHANT_LOCATION_KEY: key
+      },
+      policyNames: { fulfillment: f?.name || null, payment: p?.name || null, return: r?.name || null },
+      errors: [ful._err, pay._err, ret._err].filter(Boolean)
+    });
+  } catch (e) {
+    res.status(e.status || 500).json({
+      error: e.message,
+      hint: 'Connect eBay in the app first (Profile → eBay), then open this URL in the same browser.'
+    });
+  }
+});
+
+/* --------------------------------------------------------------------------
    eBay marketplace account deletion notifications
    ----------------------------------------------------------------------------
    eBay will not mark an application Compliant — and a Non Compliant app cannot
