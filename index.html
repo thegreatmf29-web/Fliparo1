@@ -728,17 +728,59 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 .seg button.on{background:var(--card2);color:var(--fg);box-shadow:0 1px 5px rgba(0,0,0,.35)}
 
 /* publish steps */
-.pub-step{display:flex;gap:13px;align-items:flex-start;padding:13px 0}
-.pub-step .st{width:20px;height:20px;border-radius:50%;border:2px solid var(--line2);flex-shrink:0;margin-top:2px;
-  display:grid;place-items:center;transition:.25s}
-.pub-step.doing .st{border-color:var(--acc);border-top-color:transparent;animation:spin .8s linear infinite}
-.pub-step.done .st{border-color:var(--grn);background:var(--grn)}
-.pub-step.done .st::after{content:'';width:5px;height:9px;border:solid #08090B;border-width:0 2px 2px 0;
-  transform:rotate(45deg) translate(-1px,-1px)}
-.pub-step.fail .st{border-color:var(--red);background:var(--red)}
+/* ── Publishing ────────────────────────────────────────────────────────────
+   The scan screen earns its wait with something to watch. Publishing takes
+   about as long and had four grey dots, so it read as a hang. Same idea
+   applied: the item you are listing stays on screen, and the steps sit on a
+   spine that fills as each one lands. eBay blue for the active step, because
+   this is the one moment the app is acting on eBay rather than on its own. */
 @keyframes spin{to{transform:rotate(360deg)}}
-.pub-step .pt{font-size:14.5px;font-weight:650}
-.pub-step .pm{font-size:12.5px;color:var(--mut);margin-top:2px;line-height:1.45}
+@keyframes sweep{0%{transform:translateY(-110%)}100%{transform:translateY(110%)}}
+@keyframes pulseRing{0%,100%{box-shadow:0 0 0 0 rgba(0,100,210,.32)}
+                     50%{box-shadow:0 0 0 7px rgba(0,100,210,0)}}
+
+.pub-head{display:flex;gap:14px;align-items:center;margin-bottom:8px}
+.pub-thumb{position:relative;width:64px;height:64px;border-radius:16px;overflow:hidden;flex:none;
+  background:var(--card2);border:1px solid var(--line)}
+.pub-thumb img{width:100%;height:100%;object-fit:cover}
+.pub-thumb .sweep{position:absolute;inset:0;
+  background:linear-gradient(180deg,transparent,rgba(0,120,240,.5),transparent);
+  animation:sweep 2.1s ease-in-out infinite}
+.pub-head .ph1{font-size:18px;font-weight:800;letter-spacing:-.03em;line-height:1.2}
+.pub-head .ph2{font-size:12.5px;color:var(--mut);margin-top:4px;line-height:1.4}
+
+.pub-count{font-family:inherit;font-size:11px;font-weight:750;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--dim);margin:22px 0 4px}
+
+.pub-track{position:relative}
+.pub-spine{position:absolute;left:15px;top:30px;bottom:30px;width:2px;
+  background:var(--line2);border-radius:2px;overflow:hidden}
+.pub-spine i{display:block;width:100%;height:0;border-radius:2px;
+  background:linear-gradient(180deg,#0064D2,var(--grn));transition:height .55s var(--ease)}
+
+.pub-step{position:relative;display:flex;gap:15px;align-items:flex-start;padding:11px 0;z-index:1}
+.pub-step .st{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--card2);border:2px solid var(--line2);color:var(--dim);
+  transition:color .3s,border-color .3s,background .3s}
+.pub-step .st svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.pub-step .st .tick{display:none}
+
+.pub-step.doing .st{border-color:transparent;color:#8FC0F7;
+  background:linear-gradient(var(--card2),var(--card2)) padding-box,
+             conic-gradient(from 0deg,rgba(0,100,210,.06),#2D8CF0) border-box;
+  animation:spin 1.1s linear infinite}
+.pub-step.doing .pt{color:var(--fg)}
+
+.pub-step.done .st{border-color:var(--grn);background:var(--grn);color:#08090B}
+.pub-step.done .st .icon{display:none}
+.pub-step.done .st .tick{display:block}
+.pub-step.fail .st{border-color:var(--red);background:var(--red);color:#fff;animation:pulseRing 1.6s ease-out infinite}
+
+.pub-step .pt{font-size:14.5px;font-weight:650;color:var(--mut);transition:color .3s;padding-top:5px}
+.pub-step.done .pt,.pub-step.fail .pt{color:var(--fg)}
+.pub-step .pm{font-size:12.5px;color:var(--mut);margin-top:3px;line-height:1.45;min-height:0}
+.pub-step.fail .pm{color:var(--red)}
 
 /* sheets, toast, errors */
 #sheetBg{position:fixed;inset:0;background:rgba(0,0,0,.66);backdrop-filter:blur(5px);z-index:90;
@@ -1081,8 +1123,12 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <!-- ══════════════════════ PUBLISHING ══════════════════════ -->
 <section class="screen" id="s-publishing" style="justify-content:center">
   <div style="width:100%;max-width:400px;margin:0 auto">
-    <h1 style="margin-bottom:26px">Publishing…</h1>
-    <div id="pubSteps"></div>
+    <div class="pub-head" id="pubHead"></div>
+    <div class="pub-count" id="pubCount"></div>
+    <div class="pub-track">
+      <div class="pub-spine"><i id="pubFill"></i></div>
+      <div id="pubSteps"></div>
+    </div>
     <button class="btn btn-ghost" id="pubCancel" style="margin-top:22px;display:none"
             onclick="go('listing',{replace:true})">Back to listing</button>
   </div>
@@ -2607,14 +2653,75 @@ async function publish(platform) {
   return publishEbay(l);
 }
 
+/* One glyph per step, so a glance at the spine says which stage it is on
+   rather than which numbered dot. Order matches the publish sequence. */
+const PUB_ICONS = [
+  '<path d="M9 3v6M15 3v6M6 9h12v3a6 6 0 01-6 6 6 6 0 01-6-6zM12 18v3"/>',            // plug — connection
+  '<path d="M3 7a2 2 0 012-2h2l1.4-2h7.2L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="12" r="3.4"/>', // camera — photos
+  '<path d="M20.6 13.4l-7.2 7.2a2 2 0 01-2.8 0l-7-7a2 2 0 01-.6-1.4V5a2 2 0 012-2h7.2a2 2 0 011.4.6l7 7a2 2 0 010 2.8z"/><circle cx="8" cy="8" r="1.4"/>', // tag — listing
+  '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 010 18 15 15 0 010-18"/>' // globe — live
+];
+const PUB_TICK = '<path d="M4 12.5l5.5 5.5L20 7"/>';
+
+let _pubTotal = 0;
+
 function pubSteps(steps) {
-  document.getElementById('pubSteps').innerHTML = steps.map((s, i) =>
-    `<div class="pub-step" id="ps-${i}"><div class="st"></div><div><div class="pt">${s.t}</div><div class="pm">${s.m||''}</div></div></div>`).join('');
+  _pubTotal = steps.length;
+
+  /* Keep the item on screen while it publishes. Watching your own photo beats
+     watching a spinner, and it makes plain which listing this is. */
+  const shot = current?.photos?.[0] || photos?.[0] || '';
+  const name = current?.productName || 'Your item';
+  document.getElementById('pubHead').innerHTML = `
+    <div class="pub-thumb">${shot ? `<img src="${shot}" alt="">` : ''}<div class="sweep"></div></div>
+    <div style="min-width:0">
+      <div class="ph1">Listing on eBay</div>
+      <div class="ph2">${esc(name)}</div>
+    </div>`;
+
+  document.getElementById('pubSteps').innerHTML = steps.map((s, i) => `
+    <div class="pub-step" id="ps-${i}">
+      <div class="st">
+        <svg class="icon" viewBox="0 0 24 24">${PUB_ICONS[i] || PUB_ICONS[3]}</svg>
+        <svg class="tick" viewBox="0 0 24 24">${PUB_TICK}</svg>
+      </div>
+      <div style="min-width:0">
+        <div class="pt">${esc(s.t)}</div>
+        <div class="pm">${esc(s.m || '')}</div>
+      </div>
+    </div>`).join('');
+
+  paintPubProgress();
 }
+
 function pubStep(i, state, msg) {
-  const el = document.getElementById('ps-' + i); if (!el) return;
+  const el = document.getElementById('ps-' + i);
+  if (!el) return;
   el.className = 'pub-step ' + state;
   if (msg !== undefined) el.querySelector('.pm').textContent = msg;
+  paintPubProgress();
+}
+
+function paintPubProgress() {
+  const steps = [...document.querySelectorAll('.pub-step')];
+  if (!steps.length) return;
+
+  const done  = steps.filter(s => s.classList.contains('done')).length;
+  const doing = steps.findIndex(s => s.classList.contains('doing'));
+  const failed = steps.some(s => s.classList.contains('fail'));
+
+  /* Half a step of credit while one is in flight, so the spine keeps moving
+     during the long call rather than sitting still and looking stuck. */
+  const progress = (done + (doing >= 0 ? 0.5 : 0)) / steps.length;
+  const fill = document.getElementById('pubFill');
+  if (fill) fill.style.height = Math.min(100, progress * 100) + '%';
+
+  const label = document.getElementById('pubCount');
+  if (label) {
+    label.textContent = failed ? 'Stopped'
+      : done >= steps.length ? 'Done'
+      : `Step ${Math.min(steps.length, done + 1)} of ${steps.length}`;
+  }
 }
 
 async function publishEbay(l) {
