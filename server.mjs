@@ -885,6 +885,69 @@ app.post('/api/depop/publish', async (req, res) => {
 });
 
 /* --------------------------------------------------------------------------
+   eBay marketplace account deletion notifications
+   ----------------------------------------------------------------------------
+   eBay will not mark an application Compliant — and a Non Compliant app cannot
+   use its production keys for real work — until this endpoint exists and
+   answers a challenge correctly.
+
+   Two things arrive here:
+
+     GET  ?challenge_code=…   eBay proving the endpoint is ours. We answer with
+                              sha256(challengeCode + verificationToken + endpoint)
+                              in hex, as JSON. That order is fixed; any other
+                              order fails with no useful error message.
+
+     POST                     A real notification that an eBay user closed their
+                              account. We must stop holding their data.
+
+   EBAY_DELETION_ENDPOINT must be the endpoint URL *exactly* as typed into the
+   eBay portal — same scheme, host and path. It is read from config rather than
+   rebuilt from the request because a proxy that rewrites Host, or forwards as
+   http, would silently produce a different string and therefore a hash that
+   never matches.
+   -------------------------------------------------------------------------- */
+const EBAY_VERIFICATION_TOKEN = process.env.EBAY_VERIFICATION_TOKEN || '';
+const EBAY_DELETION_ENDPOINT  = process.env.EBAY_DELETION_ENDPOINT  || '';
+
+app.get('/api/ebay/deletion', (req, res) => {
+  const challengeCode = req.query.challenge_code;
+  if (!challengeCode) return res.status(400).json({ error: 'missing challenge_code' });
+
+  if (!EBAY_VERIFICATION_TOKEN || !EBAY_DELETION_ENDPOINT) {
+    console.error('[ebay] deletion challenge arrived but EBAY_VERIFICATION_TOKEN / ' +
+                  'EBAY_DELETION_ENDPOINT are not set — eBay will mark this endpoint failed');
+    return res.status(500).json({ error: 'endpoint not configured' });
+  }
+
+  const challengeResponse = crypto.createHash('sha256')
+    .update(challengeCode)
+    .update(EBAY_VERIFICATION_TOKEN)
+    .update(EBAY_DELETION_ENDPOINT)
+    .digest('hex');
+
+  console.log('[ebay] deletion challenge answered');
+  res.status(200).json({ challengeResponse });
+});
+
+app.post('/api/ebay/deletion', async (req, res) => {
+  /* Acknowledge first. eBay retries, and disables an endpoint that is slow to
+     acknowledge, so nothing below may delay the response. */
+  res.status(200).json({ ok: true });
+
+  try {
+    const d = req.body?.notification?.data || {};
+    console.log('[ebay] account deletion notification', d.username || '(no username)', d.userId || '');
+
+    /* TODO: erase everything held for this eBay user. At minimum the stored
+       eBay OAuth tokens, so no refresh token for a closed account stays on
+       disk. This is a legal obligation, not a nicety. */
+  } catch (e) {
+    console.error('[ebay] failed to process deletion notification', e);
+  }
+});
+
+/* --------------------------------------------------------------------------
    Health + fees
    -------------------------------------------------------------------------- */
 app.get('/api/health', (_req, res) => res.json({
