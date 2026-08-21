@@ -1290,6 +1290,21 @@ let PLANS = [];
 let billingReady = false;
 let pendingEmail = '';
 
+/* The single owner of the session token.
+   ----------------------------------------------------------------------------
+   It has to live in two places at once: `token` in memory, which authHeaders()
+   reads on every request, and localStorage, which survives a reload. Writing
+   one without the other is silent and looks exactly like a rejected login —
+   the Google path did precisely that, so every request after a Google sign-in
+   went out with no Authorization header, /api/me answered "signed out", and
+   the app sent the user back to sign in again in a loop that only a page
+   refresh could break. Both writes happen here now, or not at all. */
+function setToken(t) {
+  token = t || null;
+  store('token', token);
+  return token;
+}
+
 const authHeaders = (extra = {}) => {
   const h = { 'x-device-id': DEVICE_ID, ...extra };
   if (token) h.authorization = 'Bearer ' + token;
@@ -1695,7 +1710,7 @@ async function onGoogleCredential(resp) {
     });
     const j = await r.json();
     if (!r.ok) return showErr('authErr', esc(j.error || 'Google sign-in failed.'));
-    store('token', j.token);
+    setToken(j.token);
     if (!store('joined')) store('joined', Date.now());
     await refreshMe();
     renderNav();
@@ -1718,7 +1733,7 @@ async function refreshMe() {
     if (!r.ok) throw new Error('me ' + r.status);
     const j = await r.json();
     authRejected = j.signedIn === false && !!token;
-    if (authRejected) { token = null; store('token', null); }   // expired or rejected
+    if (authRejected) setToken(null);   // expired or rejected
     me = j;
   } catch { /* offline: keep whatever we had */ }
   renderNav();
@@ -1822,7 +1837,7 @@ async function submitCode() {
     });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error);
-    token = j.token; store('token', token);
+    setToken(j.token);
     if (!store('joined')) store('joined', Date.now());
     await refreshMe();
     toast('You are signed in');
@@ -1835,7 +1850,7 @@ async function submitCode() {
 }
 
 function signOut() {
-  token = null; store('token', null);
+  setToken(null);
   /* Leaving this behind produced "Not signed in" sitting directly above
      "Flipping since May 2026" on the profile screen. */
   store('joined', null);
