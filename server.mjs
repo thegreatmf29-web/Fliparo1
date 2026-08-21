@@ -670,7 +670,10 @@ app.post('/api/images', async (req, res) => {
     const list = Array.isArray(req.body?.images) ? req.body.images : [];
     if (!list.length) return res.status(400).json({ error: 'No images given.' });
 
-    const base = (process.env.PUBLIC_URL || '').replace(/\/+$/, '') || `https://${req.get('host')}`;
+    /* trim() before anything else: a trailing space in the PUBLIC_URL env var
+       survives into every image URL and eBay rejects the lot with "Invalid
+       value for imageUrl", pointing at the photo rather than at the config. */
+    const base = (process.env.PUBLIC_URL || '').trim().replace(/[\s/]+$/, '') || `https://${req.get('host')}`;
     if (/^https?:\/\/localhost|127\.0\.0\.1/.test(base)) {
       /* eBay fetches these itself. A localhost URL is not a slightly worse
          URL, it is one eBay can never resolve — say so now rather than
