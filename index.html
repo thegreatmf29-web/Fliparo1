@@ -3532,12 +3532,26 @@ async function runEbaySetup() {
     const lines = Object.entries(env).map(([k, v]) => `${k}=${v ?? ''}`).join('\n');
     const missing = (j.missingPolicies || []);
 
-    out.innerHTML = `
-      <div style="color:${j.ready ? 'var(--grn)' : 'var(--amb)'};font-weight:650">
-        ${j.ready ? 'Ready — paste these into Render' : 'Not ready yet'}</div>
-      ${missing.length ? `<div style="color:var(--amb);margin-top:6px">
-        Missing on eBay: ${missing.map(esc).join(', ')}.<br>
-        Create them in Seller Hub → Account → Business Policies, then run this again.</div>` : ''}
+    /* Only show the paste block when every value is filled. Printing
+       "EBAY_PAYMENT_POLICY_ID=" with nothing after it looks like an answer and
+       reads as "copy this", when what it actually means is "this does not exist
+       on eBay yet". Missing policies get instructions instead. */
+    out.innerHTML = missing.length ? `
+      <div style="color:var(--amb);font-weight:650">Not ready — these don't exist on eBay yet</div>
+      <div style="color:var(--mut);margin-top:7px">
+        Missing: <b style="color:var(--fg)">${missing.map(esc).join(', ')}</b></div>
+      <div style="color:var(--mut);margin-top:9px;line-height:1.6">
+        You don't type these IDs in by hand — create the policies on eBay and this check
+        reads their IDs back for you.<br><br>
+        <b style="color:var(--fg)">Seller Hub → Account → Business Policies</b>
+        (opt in if it asks), create one of each, then run this again.</div>
+      <button class="btn btn-acc btn-sm" style="height:46px;margin-top:13px"
+              onclick="createEbayPolicies()">Create them for me</button>
+      <div style="color:var(--dim);margin-top:8px;font-size:11.5px;line-height:1.5">
+        Makes one of each with plain defaults — immediate payment, 30-day returns,
+        2-day handling, free USPS Ground Advantage. Edit them in Seller Hub later;
+        the ids do not change.</div>` : `
+      <div style="color:var(--grn);font-weight:650">Ready — paste these into Render</div>
       <div style="color:var(--mut);margin-top:6px">
         Inventory location <b style="color:var(--fg)">${esc(j.merchantLocation?.key || '')}</b> —
         ${esc(j.merchantLocation?.status || '?')}</div>
@@ -3548,6 +3562,43 @@ async function runEbaySetup() {
               onclick='copyText(${JSON.stringify(lines)})'>Copy these lines</button>
       ${(j.errors || []).length ? `<div style="color:var(--amb);margin-top:8px">
         ${j.errors.map(esc).join('<br>')}</div>` : ''}`;
+  } catch (e) {
+    out.innerHTML = `<div style="color:var(--red)">Could not reach the server: ${esc(e.message)}</div>`;
+  }
+}
+
+/* Creates the three business policies through the Account API, then re-runs the
+   setup check so the ids appear without a second click. */
+async function createEbayPolicies() {
+  const out = document.getElementById('ebaySetupOut');
+  if (!out) return;
+  out.innerHTML = '<span style="color:var(--mut)">Creating policies on eBay…</span>';
+  haptic();
+
+  try {
+    const r = await fetch(API + '/api/ebay/create-policies', {
+      method: 'POST', headers: authHeaders({ 'content-type': 'application/json' })
+    });
+    const j = await r.json();
+
+    if (!r.ok) {
+      return out.innerHTML = `<div style="color:var(--red)">${esc(j.error || 'Failed')}</div>
+        ${j.hint ? `<div style="color:var(--mut);margin-top:5px">${esc(j.hint)}</div>` : ''}`;
+    }
+
+    const made = Object.entries(j.created || {})
+      .map(([k, v]) => `${k}: ${v.reused ? 'already existed' : 'created'}`).join('<br>');
+    const bad = Object.entries(j.failed || {})
+      .map(([k, m]) => `<b style="color:var(--fg)">${esc(k)}</b> — ${esc(m)}`).join('<br>');
+
+    out.innerHTML = `
+      <div style="color:${j.ok ? 'var(--grn)' : 'var(--amb)'};font-weight:650">
+        ${j.ok ? 'Policies are in place' : 'Some policies could not be created'}</div>
+      ${made ? `<div style="color:var(--mut);margin-top:7px;line-height:1.6">${made}</div>` : ''}
+      ${bad ? `<div style="color:var(--amb);margin-top:9px;line-height:1.6">${bad}</div>` : ''}
+      <div style="color:var(--dim);margin-top:8px;font-size:11.5px">${esc(j.optIn || '')}</div>`;
+
+    if (j.ok) { await new Promise(r => setTimeout(r, 700)); runEbaySetup(); }
   } catch (e) {
     out.innerHTML = `<div style="color:var(--red)">Could not reach the server: ${esc(e.message)}</div>`;
   }
