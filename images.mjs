@@ -142,5 +142,7 @@ export async function get(name) {
 /* Absolute URL for eBay. PUBLIC_URL is required in production for exactly
    this reason: a relative path is useless to a server on eBay's side. */
 export function urlFor(base, id, ext) {
-  return `${String(base || '').replace(/\/+$/, '')}/i/${id}.${ext}`;
+  /* trim as well as strip slashes — a stray space in PUBLIC_URL makes every
+     URL malformed and eBay blames the image, not the environment. */
+  return `${String(base || '').trim().replace(/[\s/]+$/, '')}/i/${id}.${ext}`;
 }
