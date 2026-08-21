@@ -102,8 +102,11 @@ export const isOwner = user =>
   !!user?.email && OWNER_EMAILS.has(String(user.email).trim().toLowerCase());
 
 const OWNER_PLAN = {
-  id: 'owner', name: 'Owner', price: 0, priceLabel: '—',
-  scans: Infinity, autoList: true, blurb: 'Unlimited.', features: []
+  /* The id stays 'owner' — quota, gating and the Stripe webhook all key off it,
+     and it must never collide with a purchasable plan id. Only the label is
+     'Premium', because that is what it should read as on the account screen. */
+  id: 'owner', name: 'Premium', price: 0, priceLabel: '—',
+  scans: Infinity, autoList: true, blurb: 'Unlimited, no caps.', features: []
 };
 
 /* ═══════════════════════════════ config ══════════════════════════════════ */
