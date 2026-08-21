@@ -1174,7 +1174,7 @@ app.post('/api/ebay/create-policies', async (req, res) => {
 
     /* Business policies live behind a program opt-in. Opting in twice is
        harmless and returns an error saying so, which is not a failure. */
-    let optIn = 'already opted in';
+    let optIn = '';
     try {
       await ebayFetch(token, '/sell/account/v1/program/opt_in', {
         method: 'POST',
@@ -1182,7 +1182,33 @@ app.post('/api/ebay/create-policies', async (req, res) => {
       });
       optIn = 'opted in';
     } catch (e) {
-      optIn = `opt-in returned: ${e.message}`;
+      /* Opting in twice errors, and that error is a success for our purposes.
+         Which it is gets settled by the check below, not by this message. */
+      optIn = e.message;
+    }
+
+    /* "User is not eligible for Business Policy" is what every policy call
+       returns until this program is active, and the opt-in call itself is not
+       proof — so read the enrolled list back and say plainly whether it took. */
+    let optedIn = null;
+    try {
+      const programs = await ebayFetch(token, '/sell/account/v1/program/get_opted_in_programs');
+      const list = (programs?.programs || []).map(p => p.programType);
+      optedIn = list.includes('SELLING_POLICY_MANAGEMENT');
+      optIn = optedIn
+        ? 'Business policies program is active.'
+        : `Not enrolled in the business policies program. eBay said: ${optIn}`;
+    } catch (e) {
+      optIn = `Could not confirm enrolment: ${e.message}`;
+    }
+
+    if (optedIn === false) {
+      return res.json({
+        ok: false, optIn, optedIn, created: {}, failed: {},
+        next: 'eBay refused the enrolment. That is an account-level restriction, not a code problem — '
+            + 'the account must be a registered seller with eBay-managed payments active before it can '
+            + 'use business policies.'
+      });
     }
 
     const created = {};
@@ -1210,6 +1236,7 @@ app.post('/api/ebay/create-policies', async (req, res) => {
 
     res.json({
       optIn,
+      optedIn,
       created,
       failed,
       ok: Object.keys(failed).length === 0,
