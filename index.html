@@ -3171,11 +3171,49 @@ function renderSettings() {
     <h2 class="sec">Data</h2>
     <div class="card">
       <div class="list-link" onclick="clearAll()" style="cursor:pointer;color:var(--red)"><span>Delete all scans on this device</span><span class="lv"></span></div>
+    </div>
+
+    <h2 class="sec">Diagnostics</h2>
+    <div class="card">
+      <div class="list-link" onclick="runSessionCheck()" style="cursor:pointer">
+        <span>Check my session</span><span class="lv" style="color:var(--acc)">Run</span></div>
+      <div id="sessDiag" style="font-size:12.5px;color:var(--mut);line-height:1.55;
+           padding:0 2px;margin-top:2px"></div>
     </div>`;
   fetch(API + '/api/health').then(r => r.json())
     .then(j => document.getElementById('setModel').textContent = j.keyConfigured ? j.model : 'not configured')
     .catch(() => { const e = document.getElementById('setModel'); if (e) e.textContent = 'offline'; });
 }
+/* Runs the server's session diagnostic through the app's own fetch, so the
+   token actually travels. Opening /api/auth/whoami in the address bar is a
+   plain navigation and sends no Authorization header at all, which reports
+   "signed out" no matter what state the session is really in. */
+async function runSessionCheck() {
+  const el = document.getElementById('sessDiag');
+  if (!el) return;
+  el.textContent = 'Checking…';
+  haptic();
+
+  const held = store('token');
+  try {
+    const r = await fetch(API + '/api/auth/whoami', { headers: authHeaders() });
+    const j = await r.json();
+    const ok = j.tokenValid && j.accountFound !== false;
+    el.innerHTML = `
+      <div style="margin-top:8px;color:${ok ? 'var(--grn)' : 'var(--amb)'};font-weight:650">
+        ${esc(j.diagnosis || '—')}</div>
+      <div style="margin-top:7px;font-family:ui-monospace,monospace;font-size:11.5px;color:var(--dim)">
+        token in browser: ${held ? 'yes' : 'NO — nothing was saved at sign-in'}<br>
+        token sent: ${j.tokenSent ? 'yes' : 'no'} ·
+        signature valid: ${j.tokenValid === undefined ? 'n/a' : (j.tokenValid ? 'yes' : 'no')}<br>
+        account found: ${j.accountFound === undefined ? 'n/a' : (j.accountFound ? 'yes' : 'no')} ·
+        db: ${esc(j.dbDriver || '?')} ${j.dbReachable ? 'reachable' : 'UNREACHABLE'}
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="margin-top:8px;color:var(--red)">Could not reach the server: ${esc(e.message)}</div>`;
+  }
+}
+
 function setDefaultStrategy(k) { strategy = k; store('strategy', k); renderSettings(); haptic(); }
 function setTone(k) { tone = k; store('tone', k); listings = {}; renderSettings(); haptic(); }
 function clearAll() {
