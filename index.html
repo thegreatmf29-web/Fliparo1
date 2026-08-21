@@ -1706,11 +1706,19 @@ async function onGoogleCredential(resp) {
   }
 }
 
+/* Set when the server answered but refused the token we hold. Distinct from
+   being offline, and distinct from being signed out: it means the sign-in
+   completed and then did not stick, which is the one case worth saying out
+   loud rather than bouncing the user back to the sign-in screen forever. */
+let authRejected = false;
+
 async function refreshMe() {
   try {
     const r = await fetch(API + '/api/me', { headers: authHeaders() });
+    if (!r.ok) throw new Error('me ' + r.status);
     const j = await r.json();
-    if (j.signedIn === false && token) { token = null; store('token', null); }   // expired
+    authRejected = j.signedIn === false && !!token;
+    if (authRejected) { token = null; store('token', null); }   // expired or rejected
     me = j;
   } catch { /* offline: keep whatever we had */ }
   renderNav();
@@ -2648,7 +2656,21 @@ async function publish(platform) {
   const l = syncListingFromForm(platform);
   if (!l.title.trim())     return showErr('listErr', 'Give the listing a title first.');
   if (!l.suggestedPrice)   return showErr('listErr', 'Set a price first.');
-  if (!me.signedIn) { navStack.push('listing'); return requireAccount('Automatic listing needs an account.'); }
+  /* Ask the server before deciding. `me` can be stale — the sign-in that just
+     happened is exactly the event that changes it — and acting on a stale copy
+     is what turns one failed sign-in into an endless loop back to this screen. */
+  if (!me.signedIn) await refreshMe();
+
+  if (!me.signedIn) {
+    /* A rejected token means signing in again will fail the same way, so say
+       what is actually wrong instead of sending them round the loop again. */
+    if (authRejected) {
+      return showErr('listErr',
+        'Signed in, but the server would not accept the session. Open /api/auth/whoami on your server for the reason.');
+    }
+    navStack.push('listing');
+    return requireAccount('Automatic listing needs an account.');
+  }
   if (!me.autoList) return showPaywall('listing');
   return publishEbay(l);
 }
