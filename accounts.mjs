@@ -111,6 +111,14 @@ const OWNER_PLAN = {
 
 /* ═══════════════════════════════ config ══════════════════════════════════ */
 
+/* Every session token in existence is signed with this. Derived from
+   ANTHROPIC_API_KEY when it is unset, which is a convenience for local
+   development and a trap in production: rotating the Anthropic key — an
+   ordinary, unrelated piece of housekeeping — silently invalidates every
+   session and signs the entire userbase out at once. server.mjs refuses to
+   boot in production without an explicit SESSION_SECRET for that reason. */
+export const sessionSecretSet = () => !!process.env.SESSION_SECRET;
+
 const SECRET = process.env.SESSION_SECRET
   || crypto.createHash('sha256').update(process.env.ANTHROPIC_API_KEY || 'fliparo-dev').digest('hex');
 
@@ -146,33 +154,88 @@ const b64 = s => Buffer.from(s).toString('base64url');
 const unb64 = s => Buffer.from(s, 'base64url').toString();
 const sign = s => crypto.createHmac('sha256', SECRET).update(s).digest('base64url');
 
+export const SESSION_MS = 180 * 24 * 60 * 60 * 1000;   // 180-day sessions
+
+/* Past this age a still-valid token is quietly swapped for a fresh one on the
+   next /api/me. Without it the 180 days is a hard wall that eventually throws
+   out somebody who has used the app every single day — the exact user you least
+   want to make sign in again. A third of the window is early enough that anyone
+   who opens the app even once every four months never reaches the wall. */
+const RENEW_AFTER_MS = SESSION_MS / 3;
+
 export function issueToken(email) {
   const payload = b64(JSON.stringify({ e: email.toLowerCase(), t: Date.now() }));
   return `${payload}.${sign(payload)}`;
 }
 
-export function readToken(token) {
+/* Returns { email, issuedAt } for a good token, or null. Kept separate from
+   readToken so callers that need the age (renewal) do not re-parse. */
+export function inspectToken(token) {
   if (!token || typeof token !== 'string' || !token.includes('.')) return null;
   const [payload, mac] = token.split('.');
+  if (!payload || !mac) return null;
   const expect = sign(payload);
   // timingSafeEqual throws on length mismatch, so guard first
   if (mac.length !== expect.length) return null;
   if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return null;
   try {
     const { e, t } = JSON.parse(unb64(payload));
-    if (Date.now() - t > 180 * 24 * 60 * 60 * 1000) return null;   // 180-day sessions
-    return e;
+    if (!e || typeof t !== 'number') return null;
+    if (Date.now() - t > SESSION_MS) return null;
+    return { email: String(e).toLowerCase(), issuedAt: t };
   } catch { return null; }
 }
 
-/* Reads the caller's account from the Authorization header. Returns null for
-   signed-out visitors rather than throwing — most routes allow both.          */
+export const readToken = token => inspectToken(token)?.email ?? null;
+
+export const shouldRenew = issuedAt => Date.now() - issuedAt > RENEW_AFTER_MS;
+
+export const bearerOf = req =>
+  (req.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+
+/* Three outcomes, and the difference between them is the whole point.
+   ----------------------------------------------------------------------------
+   This used to return null for all three, which collapsed "nobody is signed in"
+   together with "the database is down" — and the client, seeing signed-out,
+   deleted a perfectly good token. A five-second database blip permanently
+   logged people out. Now a storage failure throws, the route answers 503, and
+   the browser keeps its token and tries again.
+
+     null              no token, or a token that fails its signature or expiry
+     { user }          signed in
+     throws            storage unreachable — never interpreted as signed out   */
 export async function currentUser(req) {
-  const h = req.get('authorization') || '';
-  const email = readToken(h.replace(/^Bearer\s+/i, '').trim());
-  if (!email) return null;
-  const u = await store.getUser(email);
+  const t = inspectToken(bearerOf(req));
+  if (!t) return null;
+  const u = await store.getUser(t.email);   // throws on storage failure, by design
   return u ? rollPeriod(u) : null;
+}
+
+/* ═══════════════════════ short-lived signed payloads ═════════════════════
+   For OAuth `state` and anything else that has to survive a round trip through
+   somebody else's website and come back trustworthy. Signed rather than stored,
+   so a restart in the middle of an eBay consent screen — routine on a host that
+   spins down after fifteen idle minutes — does not strand the callback with a
+   state it has never heard of.
+   ======================================================================== */
+
+export function signPayload(obj, ttlMs) {
+  const body = b64(JSON.stringify({ ...obj, x: Date.now() + ttlMs }));
+  return `${body}.${sign(body)}`;
+}
+
+export function readPayload(str) {
+  if (typeof str !== 'string' || !str.includes('.')) return null;
+  const [body, mac] = str.split('.');
+  if (!body || !mac) return null;
+  const expect = sign(body);
+  if (mac.length !== expect.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expect))) return null;
+  try {
+    const o = JSON.parse(unb64(body));
+    if (!o.x || Date.now() > o.x) return null;
+    return o;
+  } catch { return null; }
 }
 
 /* ═══════════════════════════════ quotas ══════════════════════════════════ */
@@ -364,7 +427,7 @@ export async function verifyCode(req, res) {
       email, createdAt: Date.now(), plan: 'free',
       stripeCustomer: null, stripeSub: null,
       periodStart: Date.now(), scansUsed: 0, listingsUsed: 0,
-      tokens: [], ebay: null
+      tokens: []
     };
     await store.putUser(user);
   }
@@ -377,6 +440,10 @@ export function publicUser(u) {
     email: u.email,
     plan: u.plan,
     createdAt: u.createdAt,
+    /* Carried here so the app knows on first paint whether eBay is linked,
+       rather than rendering "not connected" and correcting itself once a
+       second request comes back. */
+    ebayConnected: !!u.ebayConnected,
     ...quotaOf(u)
   };
 }
@@ -440,7 +507,7 @@ export async function googleAuth(req, res) {
       email, createdAt: Date.now(), plan: 'free',
       stripeCustomer: null, stripeSub: null,
       periodStart: Date.now(), scansUsed: 0, listingsUsed: 0,
-      tokens: [], ebay: null
+      tokens: []
     };
     await store.putUser(user);
   }
@@ -448,12 +515,20 @@ export async function googleAuth(req, res) {
   res.json({ token: issueToken(email), user: publicUser(user) });
 }
 
+/* The one route whose answer the client acts on destructively, so it has to be
+   precise about WHY someone is not signed in.
+
+     200 signedIn:false                 no token was sent — an ordinary visitor
+     401 code:'invalid_token'           the token is genuinely bad; drop it
+     503 code:'unavailable'             storage is down; keep the token, retry
+
+   The old version answered 200 signedIn:false to all three, and the browser
+   deleted the token every time. */
 export async function me(req, res) {
-  const u = await currentUser(req);
-  if (!u) {
-    const deviceId = req.get('x-device-id') || 'anon';
-    const q = anonQuota(deviceId);
-    return res.json({
+  const raw = bearerOf(req);
+  const anonBody = () => {
+    const q = anonQuota(req.get('x-device-id') || 'anon');
+    return {
       signedIn: false,
       plan: 'free',
       scansUsed: q.scansUsed,
@@ -461,9 +536,44 @@ export async function me(req, res) {
       scansLimit: PLANS.free.scans,
       scansLeft: Math.max(0, PLANS.free.scans - q.scansUsed),
       autoList: false
+    };
+  };
+
+  if (!raw) return res.json(anonBody());
+
+  const t = inspectToken(raw);
+  if (!t) {
+    return res.status(401).json({
+      ...anonBody(),
+      code: 'invalid_token',
+      error: 'This sign-in has expired. Sign in again to pick up where you left off.'
     });
   }
-  res.json({ signedIn: true, ...publicUser(u) });
+
+  let u;
+  try {
+    u = await store.getUser(t.email);
+  } catch (e) {
+    console.error('me: storage unreachable:', e.message);
+    return res.status(503).json({
+      code: 'unavailable',
+      error: 'Cannot reach the account database right now. Your sign-in is fine — try again in a moment.'
+    });
+  }
+
+  /* Valid signature, no row. Either the account was deleted or the database was
+     replaced. Distinct from a bad token, but the user's next step is the same,
+     so it gets the same code and the log carries the difference. */
+  if (!u) {
+    console.warn('me: valid token with no account row for', t.email);
+    return res.status(401).json({ ...anonBody(), code: 'invalid_token', error: 'That account no longer exists.' });
+  }
+
+  const body = { signedIn: true, ...publicUser(rollPeriod(u)) };
+  /* Hand back a fresh token before the old one gets close to the wall. The
+     client swaps it in silently; nobody sees a sign-in screen for it. */
+  if (shouldRenew(t.issuedAt)) body.token = issueToken(t.email);
+  res.json(body);
 }
 
 /* ═══════════════════════════════ stripe ═════════════════════════════════ */
