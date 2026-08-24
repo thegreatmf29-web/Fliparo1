@@ -996,6 +996,9 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     <svg viewBox="0 0 24 24"><path d="M12 2l2.6 6.3 6.8.5-5.2 4.4 1.6 6.6L12 16.3 6.2 19.8l1.6-6.6L2.6 8.8l6.8-.5z"/></svg>Plan</a>
   <a class="snav" data-snav="profile" onclick="tabTo('profile')">
     <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>Profile</a>
+  <!-- Support is a separate page (support.html), so this is a real link, not a tabTo() -->
+  <a class="snav" href="/support.html">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 113.3 2.4c-.6.2-.9.8-.9 1.4v.4M12 17h.01"/></svg>Support</a>
   <button class="sscan" onclick="startScan()">
     <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
     Take a photo
@@ -1322,6 +1325,15 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 <section class="screen scrolls has-nav" id="s-profile">
   <div class="page-head"><h1>Profile</h1></div>
   <div id="profBody"></div>
+  <!-- Support entry point for phones, where the sidebar is hidden. -->
+  <a href="/support.html" style="display:flex;align-items:center;gap:12px;padding:14px;margin:14px 0 0;
+     border-radius:var(--r);background:var(--card);border:1px solid var(--line);color:var(--fg);
+     font-size:14.5px;font-weight:600;text-decoration:none">
+    <svg viewBox="0 0 24 24" style="width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:1.9;
+      stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 113.3 2.4c-.6.2-.9.8-.9 1.4v.4M12 17h.01"/></svg>
+    Get support
+    <span style="margin-left:auto;color:var(--mut);font-weight:400">›</span>
+  </a>
   <div style="height:20px"></div>
 </section>
 
