@@ -109,9 +109,37 @@ const server = http.createServer(async (req, rawRes) => {
       }
     }
 
-    // run the handler chain (supports our one middleware, `gate`)
+    /* Run the handler chain (supports our one middleware, `gate`).
+       ------------------------------------------------------------------------
+       Every handler here is async, and a rejected promise used to go nowhere:
+       no catch, no response, no error. The socket simply stayed open until the
+       browser gave up. One unreachable database turned into a page that hung
+       and then rendered as signed out — the failure mode that made a valid
+       session look like an expired one. Now anything that throws gets a 500 and
+       a line in the log. */
     let i = 0;
-    const next = () => { const fn = match.h[i++]; if (fn) fn(req, res, next); };
+    let answered = false;
+    const origJson = res.json.bind(res);
+    const origSend = res.send.bind(res);
+    res.json = o => { answered = true; return origJson(o); };
+    res.send = b => { answered = true; return origSend(b); };
+
+    const fail = e => {
+      console.error(`unhandled in ${req.method} ${url.pathname}:`, e?.stack || e?.message || e);
+      if (!answered) {
+        answered = true;
+        send(rawRes, 500, { error: 'Something broke on our end. Try again in a moment.' });
+      }
+    };
+
+    const next = () => {
+      const fn = match.h[i++];
+      if (!fn) return;
+      try {
+        const out = fn(req, res, next);
+        if (out && typeof out.catch === 'function') out.catch(fail);
+      } catch (e) { fail(e); }
+    };
     return next();
   }
 
@@ -540,68 +568,182 @@ const EBAY_SCOPES = [
   'https://api.ebay.com/oauth/api_scope/sell.fulfillment'
 ].join(' ');
 
-/* eBay tokens are persisted to disk so users don't have to reconnect every
-   time the process restarts — which on a free host happens constantly, because
-   free instances spin down after ~15 minutes of inactivity. */
-const TOKEN_FILE = process.env.TOKEN_FILE || path.join(__dirname, '.tokens.json');
-const ebayTokens = new Map();          // deviceId -> { access_token, refresh_token, expires }
-const ebayStates = new Map();          // state -> deviceId
+/* ─────────────────────── where an eBay link actually lives ───────────────────
+   On the user's row, in the database, with the refresh token encrypted.
+
+   It used to live in a Map keyed by a `deviceId` the browser invented and
+   asserted in a header, mirrored to a JSON file. Three things were wrong with
+   that, and all three were being felt:
+
+     • The file was TOKEN_FILE=/tmp/.tokens.json on Render. Free instances spin
+       down after ~15 idle minutes and come back with an empty /tmp, so every
+       connection died within the hour. The comment promising it survived
+       restarts was true only on a host that kept its disk.
+
+     • The link belonged to a browser, not a person. Clearing site data lost it,
+       a second device never had it, and signing in somewhere else did not bring
+       it along.
+
+     • A deviceId is a bearer credential in disguise. Anyone who sent someone
+       else's x-device-id header got to list on their eBay account, and the ids
+       were generated from Math.random.
+
+   Now: keyed by the verified email on the session token, encrypted at rest,
+   and it survives restarts because it is in Postgres like everything else.
+   ─────────────────────────────────────────────────────────────────────────── */
+
+/* Read once at boot purely to carry existing local connections across this
+   upgrade. Anything in here is claimed by the first signed-in user who presents
+   the matching deviceId, then deleted. On Render the file is already gone, so
+   this does nothing; locally it means nobody has to reconnect. */
+const LEGACY_TOKEN_FILE = process.env.TOKEN_FILE || path.join(__dirname, '.tokens.json');
+const legacyTokens = new Map();
 
 try {
-  if (fs.existsSync(TOKEN_FILE)) {
-    for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8')))) ebayTokens.set(k, v);
-    console.log(`  ✓ Restored ${ebayTokens.size} eBay session(s)`);
+  if (fs.existsSync(LEGACY_TOKEN_FILE)) {
+    for (const [k, v] of Object.entries(JSON.parse(fs.readFileSync(LEGACY_TOKEN_FILE, 'utf8')))) legacyTokens.set(k, v);
+    if (legacyTokens.size) console.log(`  · ${legacyTokens.size} device-keyed eBay link(s) found; will migrate on next sign-in`);
   }
-} catch { /* corrupt or unreadable — start clean */ }
+} catch { /* corrupt or unreadable — nothing to migrate */ }
 
-let saveQueued = false;
-function persistTokens() {
-  if (saveQueued) return;
-  saveQueued = true;
-  setTimeout(() => {
-    saveQueued = false;
-    try { fs.writeFileSync(TOKEN_FILE, JSON.stringify(Object.fromEntries(ebayTokens))); }
-    catch (e) { console.error('  ! Could not persist eBay tokens:', e.message); }
-  }, 250);
+function forgetLegacy(deviceId) {
+  legacyTokens.delete(deviceId);
+  try {
+    if (legacyTokens.size) fs.writeFileSync(LEGACY_TOKEN_FILE, JSON.stringify(Object.fromEntries(legacyTokens)));
+    else if (fs.existsSync(LEGACY_TOKEN_FILE)) fs.unlinkSync(LEGACY_TOKEN_FILE);
+  } catch { /* best effort; the entry is gone from memory either way */ }
 }
 
 const ebayConfigured = () => !!(process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET && process.env.EBAY_REDIRECT_URI_NAME);
 
-app.get('/api/ebay/status', (req, res) => {
-  const id = req.get('x-device-id') || 'anon';
+const ebayBasic = () =>
+  Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
+
+/* Every eBay route needs the same three things: a signed-in user, a stored
+   link, and a usable access token. This returns the user or throws something
+   the client can act on — `code` is what the app switches on to decide between
+   "sign in", "connect eBay" and "reconnect eBay". */
+async function ebayUser(req) {
+  let user;
+  try {
+    user = await accounts.currentUser(req);
+  } catch (e) {
+    console.error('ebay: storage unreachable:', e.message);
+    throw Object.assign(new Error('Cannot reach the account database right now. Try again in a moment.'),
+      { status: 503, code: 'unavailable' });
+  }
+  if (!user) {
+    throw Object.assign(new Error('Sign in to connect your eBay account.'),
+      { status: 401, code: 'signup' });
+  }
+  return user;
+}
+
+/* One-time adoption of a pre-upgrade, device-keyed link. */
+async function claimLegacyLink(user, deviceId) {
+  const legacy = deviceId && legacyTokens.get(deviceId);
+  if (!legacy?.refresh_token) return null;
+  const link = {
+    access_token: legacy.access_token || null,
+    refresh_token: legacy.refresh_token,
+    expires: legacy.expires || 0,
+    connectedAt: Date.now(),
+    /* eBay refresh tokens last 18 months and then require the user to consent
+       again. Recording the deadline is what lets the app warn before the
+       reconnect lands in the middle of a publish. */
+    refreshExpires: Date.now() + 540 * 24 * 60 * 60 * 1000,
+    migratedFromDevice: true
+  };
+  await store.putEbayLink(user.email, link);
+  forgetLegacy(deviceId);
+  console.log(`  ✓ migrated device-keyed eBay link to ${user.email}`);
+  return link;
+}
+
+async function ebayLinkFor(req, user) {
+  const existing = await store.getEbayLink(user.email);
+  if (existing) return existing;
+  return claimLegacyLink(user, req.get('x-device-id'));
+}
+
+app.get('/api/ebay/status', async (req, res) => {
+  const base = { configured: ebayConfigured(), env: EBAY_SANDBOX ? 'sandbox' : 'production' };
+  let user;
+  try {
+    user = await accounts.currentUser(req);
+  } catch {
+    /* Storage down. Saying "not connected" here would send someone to reconnect
+       an account that is connected perfectly well, so it says it does not know. */
+    return res.status(503).json({ ...base, connected: false, unknown: true, code: 'unavailable' });
+  }
+  if (!user) return res.json({ ...base, connected: false, requiresSignIn: true });
+
+  const link = await ebayLinkFor(req, user);
   res.json({
-    configured: ebayConfigured(),
-    connected: ebayTokens.has(id),
-    env: EBAY_SANDBOX ? 'sandbox' : 'production'
+    ...base,
+    connected: !!link,
+    connectedAt: link?.connectedAt || null,
+    /* Surfaced so the account screen can prompt for a reconnect on the user's
+       own time rather than at the moment they try to list something. */
+    reconsentDue: link?.refreshExpires || null
   });
 });
 
-app.get('/api/ebay/login', (req, res) => {
+app.get('/api/ebay/login', async (req, res) => {
   if (!ebayConfigured()) {
     return res.status(400).json({ error: 'eBay is not configured on this server. See README §eBay.' });
   }
-  const deviceId = req.query.device || 'anon';
-  const state = crypto.randomBytes(16).toString('hex');
-  ebayStates.set(state, deviceId);
-  setTimeout(() => ebayStates.delete(state), 10 * 60_000).unref();
+  let user;
+  try { user = await ebayUser(req); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message, code: e.code }); }
+
+  /* The state is signed and carries the email, rather than being a random key
+     into a Map. A Map does not survive the restart that a free instance
+     performs while the user is still on eBay's consent screen — which turned a
+     successful authorisation into "Invalid or expired eBay login" often enough
+     to look like the feature simply did not work. */
+  const state = accounts.signPayload({ e: user.email, n: crypto.randomBytes(9).toString('base64url') }, 15 * 60_000);
 
   const url = `https://${EBAY_AUTH_HOST}/oauth2/authorize?client_id=${encodeURIComponent(process.env.EBAY_CLIENT_ID)}`
     + `&response_type=code&redirect_uri=${encodeURIComponent(process.env.EBAY_REDIRECT_URI_NAME)}`
-    + `&scope=${encodeURIComponent(EBAY_SCOPES)}&state=${state}`;
+    + `&scope=${encodeURIComponent(EBAY_SCOPES)}&state=${encodeURIComponent(state)}`;
   res.json({ url });
 });
 
+/* This page interpolates an error string that originated at eBay, so it gets
+   escaped. Not a likely attack, but a server that reflects a third party's text
+   into HTML unescaped is one upstream change away from being one. */
+const esc = s => String(s ?? '').replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+/* eBay sends the browser back here. Styled to match the app because it is a
+   real screen a user reads, not a redirect they blink past. */
+const callbackPage = (ok, heading, detail) => `<!doctype html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${ok ? 'eBay connected' : 'eBay connection failed'}</title></head>
+<body style="background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:24px">
+<div style="max-width:340px">
+  <div style="font-size:52px;color:${ok ? '#30D158' : '#FF5A4E'}">${ok ? '✓' : '✕'}</div>
+  <h2 style="margin:12px 0 6px;font-size:22px;letter-spacing:-.02em">${heading}</h2>
+  <p style="color:#86868B;font-size:14px;line-height:1.6;margin:0">${detail}</p>
+</div>
+${ok ? '<script>try{localStorage.setItem("rai.ebayJustLinked",String(Date.now()))}catch(e){};setTimeout(()=>window.close(),1600)</script>' : ''}
+</body></html>`;
+
 app.get('/api/ebay/callback', async (req, res) => {
   const { code, state } = req.query;
-  const deviceId = ebayStates.get(state);
-  if (!code || !deviceId) return res.status(400).send('Invalid or expired eBay login. Close this and try again.');
-  ebayStates.delete(state);
+  const claim = accounts.readPayload(state);
+
+  if (!code || !claim?.e) {
+    return res.status(400).send(callbackPage(false, 'That link expired',
+      'eBay sign-in links are good for fifteen minutes. Close this window and tap Connect again.'));
+  }
 
   try {
-    const basic = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
     const r = await fetch(`https://${EBAY_API_HOST}/identity/v1/oauth2/token`, {
       method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Basic ${basic}` },
+      headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Basic ${ebayBasic()}` },
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code: String(code),
@@ -611,36 +753,87 @@ app.get('/api/ebay/callback', async (req, res) => {
     const j = await r.json();
     if (!r.ok) throw new Error(j.error_description || 'Token exchange failed');
 
-    ebayTokens.set(deviceId, {
+    /* eBay returns refresh_token_expires_in in seconds (about 18 months). Stored
+       rather than assumed, because eBay is free to change it and a hardcoded
+       guess would either warn too early or not at all. */
+    const refreshTtl = Number(j.refresh_token_expires_in) || 540 * 24 * 60 * 60;
+
+    const written = await store.putEbayLink(claim.e, {
       access_token: j.access_token,
       refresh_token: j.refresh_token,
-      expires: Date.now() + (j.expires_in - 60) * 1000
+      expires: Date.now() + (Number(j.expires_in || 7200) - 60) * 1000,
+      connectedAt: Date.now(),
+      refreshExpires: Date.now() + refreshTtl * 1000
     });
-    persistTokens();
-    res.send('<html><body style="background:#000;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center"><div><div style="font-size:52px">✓</div><h2 style="margin:12px 0 6px">eBay connected</h2><p style="color:#86868B">You can close this window.</p></div><script>setTimeout(()=>window.close(),1400)</script></body></html>');
+
+    /* No row to attach it to — the account was removed while the user was on
+       eBay's consent screen. Saying "connected" here would be a lie the app
+       would then have to walk back. */
+    if (!written) {
+      console.warn('ebay callback: no account row for', claim.e);
+      return res.status(400).send(callbackPage(false, 'Could not save that connection',
+        'We could not find your Fliparo account. Sign in again, then reconnect eBay.'));
+    }
+
+    console.log(`  ✓ eBay connected for ${claim.e}`);
+    res.send(callbackPage(true, 'eBay connected',
+      'This stays connected to your account — on every device, and after every restart. You can close this window.'));
   } catch (e) {
     console.error('ebay callback:', e.message);
-    res.status(500).send('eBay connection failed: ' + e.message);
+    res.status(500).send(callbackPage(false, 'eBay connection failed', esc(e.message)));
   }
 });
 
-async function ebayToken(deviceId) {
-  const t = ebayTokens.get(deviceId);
-  if (!t) throw Object.assign(new Error('Connect your eBay account first.'), { status: 401 });
-  if (Date.now() < t.expires) return t.access_token;
+app.post('/api/ebay/disconnect', async (req, res) => {
+  try {
+    const user = await ebayUser(req);
+    await store.clearEbayLink(user.email);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message, code: e.code });
+  }
+});
 
-  const basic = Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
+/* Returns a usable access token for this user, refreshing if needed and writing
+   the refreshed pair back so the next process to start finds it already valid.
+   Takes the user, never a device id. */
+async function ebayToken(req, user) {
+  const link = await ebayLinkFor(req, user);
+  if (!link) {
+    throw Object.assign(new Error('Connect your eBay account first.'),
+      { status: 401, code: 'ebay_disconnected' });
+  }
+  if (link.access_token && Date.now() < link.expires) return link.access_token;
+
   const r = await fetch(`https://${EBAY_API_HOST}/identity/v1/oauth2/token`, {
     method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Basic ${basic}` },
-    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: t.refresh_token, scope: EBAY_SCOPES })
+    headers: { 'content-type': 'application/x-www-form-urlencoded', authorization: `Basic ${ebayBasic()}` },
+    body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: link.refresh_token, scope: EBAY_SCOPES })
   });
-  const j = await r.json();
-  if (!r.ok) { ebayTokens.delete(deviceId); persistTokens(); throw Object.assign(new Error('eBay session expired. Reconnect.'), { status: 401 }); }
-  t.access_token = j.access_token;
-  t.expires = Date.now() + (j.expires_in - 60) * 1000;
-  persistTokens();
-  return t.access_token;
+  const j = await r.json().catch(() => ({}));
+
+  if (!r.ok) {
+    /* Only drop the stored link when eBay says the GRANT is dead. A 500 from
+       eBay, or a network wobble, used to delete the refresh token and force a
+       full reconnect over what was a transient failure. */
+    const fatal = r.status === 400 || r.status === 401;
+    if (fatal) {
+      await store.clearEbayLink(user.email);
+      throw Object.assign(new Error('Your eBay connection expired. Reconnect to keep listing.'),
+        { status: 401, code: 'ebay_disconnected' });
+    }
+    console.error('ebay refresh transient failure:', r.status, JSON.stringify(j));
+    throw Object.assign(new Error('eBay is not responding right now. Your connection is fine — try again shortly.'),
+      { status: 503, code: 'ebay_unavailable' });
+  }
+
+  const refreshed = {
+    ...link,
+    access_token: j.access_token,
+    expires: Date.now() + (Number(j.expires_in || 7200) - 60) * 1000
+  };
+  await store.putEbayLink(user.email, refreshed);
+  return refreshed.access_token;
 }
 
 // our condition words -> eBay's official condition enums
@@ -783,7 +976,6 @@ async function ebayFetch(token, endpoint, opts = {}) {
 
 /* Full publish chain: inventory item -> offer -> publish */
 app.post('/api/ebay/publish', async (req, res) => {
-  const deviceId = req.get('x-device-id') || 'anon';
   try {
     /* Automatic publishing is the paid feature. Checked here, on the server,
        because this is the endpoint that actually does the work — a paywall
@@ -815,7 +1007,9 @@ app.post('/api/ebay/publish', async (req, res) => {
       });
     }
 
-    const token = await ebayToken(deviceId);
+    /* checkListingAllowed already proved there is a signed-in user on a plan
+       that includes auto-listing, so this reuses it rather than re-reading. */
+    const token = await ebayToken(req, allowed.user);
     const sku = `FLIP-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 
     /* An explicit category from the client wins; otherwise ask eBay what this
@@ -947,10 +1141,9 @@ app.post('/api/depop/publish', async (req, res) => {
    It only reads and creates the location — it publishes nothing.
    -------------------------------------------------------------------------- */
 app.get('/api/ebay/setup-check', async (req, res) => {
-  const deviceId = req.get('x-device-id') || req.query.device || 'anon';
-
   try {
-    const token = await ebayToken(deviceId);
+    const user = await ebayUser(req);
+    const token = await ebayToken(req, user);
     const mp = 'marketplace_id=EBAY_US';
 
     const [ful, pay, ret] = await Promise.all([
@@ -1018,7 +1211,8 @@ app.get('/api/ebay/setup-check', async (req, res) => {
   } catch (e) {
     res.status(e.status || 500).json({
       error: e.message,
-      hint: 'This endpoint identifies you by the x-device-id header, which a browser address bar '
+      code: e.code,
+      hint: 'This endpoint identifies you by your session token, which a browser address bar '
           + 'never sends — so opening the URL directly always lands here. Run it from the app instead: '
           + 'Profile → Settings → Diagnostics → eBay setup check.'
     });
@@ -1190,9 +1384,9 @@ const fulfillmentBody = serviceCode => ({
 });
 
 app.post('/api/ebay/create-policies', async (req, res) => {
-  const deviceId = req.get('x-device-id') || 'anon';
   try {
-    const token = await ebayToken(deviceId);
+    const user = await ebayUser(req);
+    const token = await ebayToken(req, user);
 
     /* Business policies live behind a program opt-in. Opting in twice is
        harmless and returns an error saying so, which is not a failure. */
@@ -1322,8 +1516,14 @@ app.get('/api/auth/whoami', async (req, res) => {
   }
 
   if (raw) {
-    const email = accounts.readToken(raw);
+    const t = accounts.inspectToken(raw);
+    const email = t?.email || null;
     out.tokenValid = !!email;
+    if (t) {
+      out.tokenIssuedAt = new Date(t.issuedAt).toISOString();
+      out.tokenAgeDays = Math.floor((Date.now() - t.issuedAt) / 86_400_000);
+      out.tokenRenewsSoon = accounts.shouldRenew(t.issuedAt);
+    }
     if (!email) {
       out.diagnosis = out.sessionSecretSet
         ? 'Token failed its signature check. SESSION_SECRET almost certainly changed after this token was issued — sign out and sign in again to get a fresh one.'
@@ -1332,6 +1532,17 @@ app.get('/api/auth/whoami', async (req, res) => {
       out.email = email;
       try {
         out.accountFound = !!(await store.getUser(email));
+        if (out.accountFound) {
+          /* The other half of "why am I being asked to do this again" — an eBay
+             link that looks connected in the UI and is not there on the server.
+             Reported here so both halves of the session story are in one place. */
+          const link = await store.getEbayLink(email).catch(() => null);
+          out.ebayLinked = !!link;
+          if (link) {
+            out.ebayConnectedAt = link.connectedAt ? new Date(link.connectedAt).toISOString() : null;
+            out.ebayReconsentDue = link.refreshExpires ? new Date(link.refreshExpires).toISOString() : null;
+          }
+        }
         if (!out.accountFound) {
           out.diagnosis = out.dbReachable
             ? 'Token is valid but no account row exists for it. The account was never written, or the database was replaced.'
@@ -1427,6 +1638,8 @@ server.listen(PORT, () => {
   console.log(`  Email: ${accounts.mailConfigured() ? accounts.mailProvider() + ' (' + accounts.mailFrom() + ')' : 'console only (codes print here)'}`);
   console.log(`  Storage: ${store.DRIVER}`);
 
+  const IS_PROD = process.env.NODE_ENV === 'production';
+
   /* The one combination that quietly loses money: real cards being charged
      while account records sit on a disk that gets wiped on every deploy. */
   if (live && store.DRIVER === 'file') {
@@ -1434,6 +1647,36 @@ server.listen(PORT, () => {
     console.error('    Render wipes the filesystem on restart — paying customers');
     console.error('    would lose their subscription. Set DATABASE_URL first.\n');
     process.exit(1);
+  }
+
+  /* Widened from the Stripe-only check above, because losing accounts costs you
+     users whether or not anyone has paid yet. On a wiped filesystem every
+     session token in the wild still passes its signature check and then finds
+     no account row behind it, so the entire userbase is silently signed out on
+     each restart — and on a free instance that is every fifteen idle minutes. */
+  if (IS_PROD && store.DRIVER === 'file') {
+    console.error('\n  ✗ REFUSING TO RUN: NODE_ENV=production with file storage.');
+    console.error('    Accounts would not survive a restart, so every user would be');
+    console.error('    signed out and every eBay connection lost. Set DATABASE_URL.\n');
+    process.exit(1);
+  }
+
+  /* Without an explicit secret, sessions are signed with a hash of
+     ANTHROPIC_API_KEY. Rotating that key — routine, unrelated housekeeping —
+     invalidates every token in existence. */
+  if (IS_PROD && !accounts.sessionSecretSet()) {
+    console.error('\n  ✗ REFUSING TO RUN: SESSION_SECRET is not set in production.');
+    console.error('    Sessions would be signed with a key derived from ANTHROPIC_API_KEY,');
+    console.error('    so rotating that key would sign out every user at once.');
+    console.error('    Set SESSION_SECRET to a long random string, once, and leave it.\n');
+    process.exit(1);
+  }
+
+  if (process.env.TOKEN_FILE) {
+    console.log('\n  · TOKEN_FILE is set but no longer used for storing eBay links.');
+    console.log('    Links now live on the user record in the database. The file is read');
+    console.log('    once at boot to migrate old device-keyed links, then removed.');
+    console.log('    Safe to delete this variable.\n');
   }
   if (!accounts.mailConfigured()) {
     console.log('\n  · No mail provider set, so login codes print in this terminal');
