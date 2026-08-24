@@ -1,0 +1,909 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#08090B">
+<meta name="description" content="Fliparo support - describe your problem, get an answer on the page, or reach a human.">
+<title>Fliparo Support Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
+
+<style>
+/* ============================================================
+   FLIPARO SUPPORT — matched to the app shell (dark, violet)
+   Single-theme by design: the product is dark-only.
+   ============================================================ */
+:root{
+  --bg:#08090B;
+  --rail:#0B0C10;
+  --card:#121318;
+  --card-2:#16171E;
+  --field:#0E0F14;
+  --line:#20232E;
+  --line-2:#2C3040;
+  --text:#F4F5F7;
+  --text-2:#B7BCC8;
+  --muted:#787E8C;
+  --violet:#8B5CF6;
+  --violet-hi:#A78BFA;
+  --violet-deep:#7C3AED;
+  --violet-soft:rgba(139,92,246,.12);
+  --violet-line:rgba(139,92,246,.32);
+  --green:#22C55E;
+  --red:#F87171;
+  --red-soft:rgba(248,113,113,.11);
+  --r-lg:16px;
+  --r-md:12px;
+  --r-sm:10px;
+  --rail-w:236px;
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+
+html,body{background:var(--bg)}
+body{
+  margin:0;
+  color:var(--text);
+  font-family:"Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size:15.5px;
+  line-height:1.55;
+  letter-spacing:-.006em;
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3{margin:0;font-weight:800;letter-spacing:-.032em;text-wrap:balance;line-height:1.12}
+p{margin:0}
+a{color:var(--violet-hi);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace}
+:focus-visible{outline:2px solid var(--violet);outline-offset:2px;border-radius:6px}
+
+.eyebrow{
+  font-size:10.5px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);
+}
+
+/* ================= app shell ================= */
+.shell{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);min-height:100vh}
+@media (max-width:940px){ .shell{grid-template-columns:minmax(0,1fr)} }
+
+/* ---- left rail (mirrors the Fliparo app) ---- */
+.rail{
+  background:var(--rail);
+  border-right:1px solid var(--line);
+  padding:22px 16px;
+  display:flex;flex-direction:column;gap:26px;
+  position:sticky;top:0;height:100vh;
+}
+@media (max-width:940px){
+  .rail{position:static;height:auto;flex-direction:row;align-items:center;gap:14px;padding:12px 16px;
+        border-right:none;border-bottom:1px solid var(--line);overflow-x:auto}
+  .rail .nav{flex-direction:row;gap:4px}
+  .rail .rail-foot{display:none}
+  .rail .cta{margin-left:auto;flex:none}
+}
+.logo{display:flex;align-items:center;gap:10px;padding:2px 6px}
+.logo .mark{
+  width:30px;height:30px;flex:none;border-radius:9px;
+  background:linear-gradient(150deg,var(--violet-hi),var(--violet-deep));
+  display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px;
+  box-shadow:0 4px 14px -4px rgba(139,92,246,.7);
+}
+.logo .name{font-size:19px;font-weight:800;letter-spacing:-.04em}
+
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav a{
+  display:flex;align-items:center;gap:11px;
+  padding:9px 11px;border-radius:var(--r-sm);
+  color:var(--text-2);font-size:14.5px;font-weight:500;text-decoration:none;
+  white-space:nowrap;transition:background .15s,color .15s;
+}
+.nav a:hover{background:#15161C;color:var(--text);text-decoration:none}
+.nav a.active{background:var(--violet-soft);color:var(--text);font-weight:600}
+.nav a.active svg{color:var(--violet-hi)}
+.nav svg{width:17px;height:17px;flex:none;color:var(--muted)}
+
+.cta{
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  background:linear-gradient(150deg,var(--violet),var(--violet-deep));
+  color:#fff;font-weight:700;font-size:14.5px;
+  padding:12px 16px;border-radius:var(--r-md);text-decoration:none;
+  box-shadow:0 6px 20px -8px rgba(139,92,246,.85);
+  transition:filter .15s,transform .12s;
+}
+.cta:hover{filter:brightness(1.09);text-decoration:none}
+.cta:active{transform:translateY(1px)}
+.cta svg{width:16px;height:16px}
+
+.rail-foot{margin-top:auto}
+.plan-card{border:1px solid var(--line);border-radius:var(--r-md);padding:13px 14px;background:var(--card)}
+.plan-card .t{font-size:13px;font-weight:700}
+.plan-card .bar{height:3px;border-radius:2px;background:#22242E;margin:9px 0 8px;overflow:hidden}
+.plan-card .bar i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--violet-deep),var(--violet-hi))}
+.plan-card .s{font-size:12px;color:var(--muted)}
+
+/* ---- main ---- */
+.main{min-width:0;padding:0 0 70px}
+.topline{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:18px 34px;border-bottom:1px solid var(--line);
+}
+@media (max-width:600px){ .topline{padding:14px 18px} }
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  border:1px solid var(--line);border-radius:999px;padding:5px 12px;
+  font-size:12px;color:var(--text-2);background:var(--card);
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(34,197,94,.16)}
+.topline .right{margin-left:auto;font-size:12.5px;color:var(--muted)}
+
+.pad{padding:0 34px}
+@media (max-width:600px){ .pad{padding:0 18px} }
+
+.hero{padding-top:44px;padding-bottom:26px;max-width:760px}
+.hero h1{font-size:clamp(2rem,4.4vw,2.95rem);margin:12px 0 14px}
+.hero h1 .grad{
+  background:linear-gradient(100deg,var(--violet-hi),#C4B5FD 55%,var(--violet));
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.hero p{color:var(--text-2);max-width:60ch;font-size:1.02rem}
+
+.cols{
+  display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);
+  gap:24px;align-items:start;padding-top:8px;
+}
+@media (max-width:1100px){ .cols{grid-template-columns:minmax(0,1fr)} }
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg)}
+.card-pad{padding:24px}
+@media (max-width:600px){ .card-pad{padding:18px} }
+.card h2{font-size:1.16rem;font-weight:700;letter-spacing:-.028em}
+
+/* ---- form ---- */
+.form-grid{display:grid;gap:15px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:15px}
+@media (max-width:620px){ .row2{grid-template-columns:1fr} }
+.field{display:grid;gap:6px;min-width:0}
+.field label{font-size:12.5px;font-weight:600;color:var(--text-2)}
+.field .hint{font-size:12px;color:var(--muted);font-weight:400}
+input[type=text],input[type=email],select,textarea{
+  width:100%;font-family:inherit;font-size:14.5px;color:var(--text);
+  background:var(--field);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:11px 13px;transition:border-color .15s,box-shadow .15s,background .15s;
+}
+input::placeholder,textarea::placeholder{color:#5B6170}
+textarea{min-height:130px;resize:vertical;line-height:1.5}
+input:focus,select:focus,textarea:focus{
+  outline:none;background:#101118;border-color:var(--violet);
+  box-shadow:0 0 0 3px rgba(139,92,246,.18);
+}
+select{appearance:none;cursor:pointer}
+.select-wrap{position:relative}
+.select-wrap::after{
+  content:"";position:absolute;right:14px;top:50%;width:6px;height:6px;
+  border-right:1.7px solid var(--muted);border-bottom:1.7px solid var(--muted);
+  transform:translateY(-70%) rotate(45deg);pointer-events:none;
+}
+.honeypot{position:absolute;left:-9999px;width:0;height:0;overflow:hidden;opacity:0}
+
+.btn{
+  font-family:inherit;font-size:14.5px;font-weight:700;
+  border-radius:var(--r-md);padding:12px 20px;border:1px solid transparent;cursor:pointer;
+  transition:filter .15s,transform .12s,background .15s,border-color .15s,color .15s;
+}
+.btn:active{transform:translateY(1px)}
+.btn-primary{background:linear-gradient(150deg,var(--violet),var(--violet-deep));color:#fff;box-shadow:0 6px 20px -9px rgba(139,92,246,.9)}
+.btn-primary:hover{filter:brightness(1.09)}
+.btn-primary[disabled]{opacity:.62;cursor:progress;filter:none}
+.btn-ghost{background:transparent;color:var(--text-2);border-color:var(--line-2);font-weight:600}
+.btn-ghost:hover{border-color:var(--muted);color:var(--text)}
+.btn-red{background:var(--red-soft);color:var(--red);border-color:rgba(248,113,113,.34);font-weight:600}
+.btn-red:hover{background:rgba(248,113,113,.18)}
+.submit-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-top:2px}
+.submit-note{font-size:12.5px;color:var(--muted);max-width:32ch}
+.err-text{color:var(--red);font-size:12.5px}
+
+/* ---- reply ---- */
+.reply{margin-top:22px}
+.reply-card{
+  border:1px solid var(--line-2);border-radius:var(--r-lg);background:var(--card-2);overflow:hidden;
+  animation:rise .34s cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){ .reply-card{animation:none} }
+.reply-head{
+  display:flex;align-items:center;gap:11px;padding:13px 18px;
+  border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,var(--violet-soft),transparent);
+}
+.reply-head.is-human{background:linear-gradient(180deg,var(--red-soft),transparent)}
+.badge{
+  font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;
+  border-radius:999px;padding:4px 9px;
+  border:1px solid var(--violet-line);color:var(--violet-hi);background:rgba(139,92,246,.09);
+}
+.reply-head.is-human .badge{border-color:rgba(248,113,113,.4);color:var(--red);background:rgba(248,113,113,.09)}
+.reply-head .kicker{font-size:13px;color:var(--text-2)}
+.reply-head .ticket{margin-left:auto;font-size:11.5px;color:var(--muted)}
+.reply-body{padding:20px 18px;display:grid;gap:12px}
+.reply-body h3{font-size:1.1rem;font-weight:700}
+.reply-body p{color:var(--text-2);max-width:64ch}
+.reply-body b{color:var(--text);font-weight:600}
+.reply-body ol,.reply-body ul{margin:0;padding-left:19px;color:var(--text-2);display:grid;gap:7px}
+.reply-body code{font-family:"JetBrains Mono",monospace;font-size:12.5px;background:#0C0D12;border:1px solid var(--line);padding:1px 5px;border-radius:5px;color:var(--violet-hi)}
+.reply-foot{
+  border-top:1px solid var(--line);padding:15px 18px;
+  display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:var(--card);
+}
+.reply-foot .q{font-size:13.5px;color:var(--muted);margin-right:auto}
+.delivery{
+  font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--muted);
+  padding:10px 18px;border-top:1px solid var(--line);background:var(--bg);
+}
+.delivery b{color:var(--green);font-weight:500}
+.delivery.err b{color:var(--red)}
+
+/* ---- ticket receipt ---- */
+.stub{margin-top:18px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--card);overflow:hidden}
+.stub .top{padding:16px 18px;display:grid;gap:5px}
+.stub .top .big{font-size:1.08rem;font-weight:800;letter-spacing:-.03em}
+.stub .top p{font-size:13px;color:var(--muted)}
+.stub .perf{border-top:1px dashed var(--line-2)}
+.stub .bot{padding:13px 18px;display:flex;gap:22px;flex-wrap:wrap;font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.stub .bot b{display:block;color:var(--text);font-weight:500;font-size:12px;text-transform:none;letter-spacing:0;margin-top:2px}
+
+/* ---- pipeline (mirrors the app's listing steps) ---- */
+.pipe{list-style:none;margin:16px 0 0;padding:0;display:grid;gap:0}
+.pipe li{display:grid;grid-template-columns:26px 1fr;gap:13px;position:relative;padding-bottom:18px}
+.pipe li:last-child{padding-bottom:0}
+.pipe li::before{
+  content:"";position:absolute;left:12.5px;top:26px;bottom:0;width:1.5px;
+  background:linear-gradient(180deg,var(--violet-line),var(--line));
+}
+.pipe li:last-child::before{display:none}
+.pipe .node{
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
+  background:var(--violet-soft);border:1px solid var(--violet-line);color:var(--violet-hi);
+  font-size:12px;font-weight:700;
+}
+.pipe .node.grey{background:#15161C;border-color:var(--line);color:var(--muted)}
+.pipe .txt b{display:block;font-size:14px;font-weight:700;letter-spacing:-.02em}
+.pipe .txt span{font-size:13px;color:var(--muted);line-height:1.45}
+
+/* ---- FAQ ---- */
+.kb{display:grid;gap:8px;margin-top:14px}
+.kb-item{border:1px solid var(--line);border-radius:var(--r-md);background:var(--card-2);overflow:hidden}
+.kb-item summary{
+  cursor:pointer;list-style:none;padding:11px 14px;font-size:13.5px;font-weight:600;color:var(--text-2);
+  display:flex;align-items:center;gap:10px;
+}
+.kb-item summary::-webkit-details-marker{display:none}
+.kb-item summary::after{content:"+";margin-left:auto;color:var(--muted);font-family:"JetBrains Mono",monospace}
+.kb-item[open] summary::after{content:"–"}
+.kb-item[open] summary{color:var(--text)}
+.kb-item summary:hover{color:var(--text)}
+.kb-item .ans{padding:0 14px 14px;font-size:13px;color:var(--muted);line-height:1.55;display:grid;gap:9px}
+.kb-item .ans ol,.kb-item .ans ul{padding-left:18px;margin:0;display:grid;gap:5px}
+.kb-item .ans b{color:var(--text-2);font-weight:600}
+.kb-item .ans code{font-family:"JetBrains Mono",monospace;font-size:11.5px;background:#0C0D12;border:1px solid var(--line);padding:1px 4px;border-radius:4px;color:var(--violet-hi)}
+
+.mail-card{border:1px dashed var(--line-2);border-radius:var(--r-lg);padding:18px}
+.mail-card p{font-size:13px;color:var(--muted);margin-top:8px}
+.mail-card a{font-family:"JetBrains Mono",monospace;font-size:13px;word-break:break-all}
+
+.banner{
+  display:flex;gap:11px;align-items:flex-start;
+  border:1px solid rgba(248,113,113,.3);background:var(--red-soft);
+  border-radius:var(--r-md);padding:12px 15px;font-size:13px;color:var(--text-2);margin-bottom:20px;
+}
+.banner b{color:var(--text);font-weight:700}
+.banner code{font-family:"JetBrains Mono",monospace;font-size:11.5px;background:#0C0D12;padding:1px 5px;border-radius:4px;color:var(--violet-hi)}
+
+.foot{margin-top:44px;padding-top:22px;border-top:1px solid var(--line);display:flex;gap:16px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:var(--muted)}
+.foot .mono{font-size:11.5px}
+</style>
+</head>
+<body>
+<div class="shell">
+  <!-- ================= LEFT RAIL ================= -->
+  <nav class="rail" aria-label="Fliparo">
+    <a class="logo" href="/" aria-label="Fliparo home">
+      <span class="mark" aria-hidden="true">F</span>
+      <span class="name">Fliparo</span>
+    </a>
+
+    <div class="nav">
+      <a href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home</a>
+      <a href="/plan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6.1.8-4.5 4.2 1.2 6.1L12 16.8 6.6 19.7l1.2-6.1L3.3 9.4l6.1-.8z"/></svg>Plan</a>
+      <a href="/profile"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c1.4-3.6 4.2-5.4 7.5-5.4S18.1 16.4 19.5 20"/></svg>Profile</a>
+      <a href="#" class="active" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.3 2.4c-.6.2-.9.8-.9 1.4v.4"/><path d="M12 17h.01"/></svg>Support</a>
+    </div>
+
+    <a class="cta" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8.5h3l1.4-2h7.2l1.4 2h3V19H4z"/><circle cx="12" cy="13" r="3.2"/></svg>
+      Take a photo
+    </a>
+
+    <div class="rail-foot">
+      <div class="plan-card">
+        <div class="t">Need a hand?</div>
+        <div class="bar"><i></i></div>
+        <div class="s">Support is open to every plan.</div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ================= MAIN ================= -->
+  <main class="main">
+    <div class="topline">
+      <span class="pill" id="slaPill"><span class="dot"></span> replies within 24 hours</span>
+      <span class="right mono" id="topRight">fliparo.net / support</span>
+    </div>
+
+    <div class="pad hero">
+      <div class="eyebrow">Support</div>
+      <h1>Something not working?<br><span class="grad">Tell us and get an answer here.</span></h1>
+      <p>Describe what happened. The assistant checks it against every problem we've already solved and answers on this page. If it isn't sure — or it's about your money, your account or your data — it hands you straight to a person instead of guessing.</p>
+    </div>
+
+    <div class="pad cols">
+      <!-- ---------- form column ---------- -->
+      <section>
+        <div id="setupBanner" class="banner" hidden>
+          <span aria-hidden="true">⚑</span>
+          <div><b>Preview mode.</b> No email key is set yet, so nothing is being sent. The assistant still works — paste your Web3Forms access key into <code>CONFIG.accessKey</code> to switch delivery on.</div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="eyebrow">New ticket</div>
+          <h2 style="margin:8px 0 18px">What's going on?</h2>
+
+          <form id="ticketForm" class="form-grid" novalidate>
+            <div class="row2">
+              <div class="field">
+                <label for="name">Your name</label>
+                <input type="text" id="name" name="name" autocomplete="name" required>
+              </div>
+              <div class="field">
+                <label for="email">Email on your Fliparo account</label>
+                <input type="email" id="email" name="email" autocomplete="email" required>
+              </div>
+            </div>
+
+            <div class="row2">
+              <div class="field">
+                <label for="category">What's it about?</label>
+                <div class="select-wrap">
+                  <select id="category" name="category">
+                    <option value="signin">Signing in</option>
+                    <option value="ebay">eBay connection</option>
+                    <option value="listing">Listing failed</option>
+                    <option value="valuation">Valuation or condition</option>
+                    <option value="scan">Photos &amp; scanning</option>
+                    <option value="inventory">Inventory</option>
+                    <option value="billing">Plan &amp; billing</option>
+                    <option value="idea">Feature idea</option>
+                    <option value="other">Something else</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="ref">Item or listing name <span class="hint">(optional)</span></label>
+                <input type="text" id="ref" name="ref" placeholder="Pokemon TCG Card Lot">
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="subject">One-line summary</label>
+              <input type="text" id="subject" name="subject" placeholder="Listing stops at &quot;Creating the listing&quot;" required>
+            </div>
+
+            <div class="field">
+              <label for="message">The details</label>
+              <textarea id="message" name="message" placeholder="What were you doing, what did you expect, and what happened instead? Paste any red error text — that's the fastest thing to fix from."></textarea>
+              <span class="hint">Paste the exact error if you have one. It's usually enough to solve it right here.</span>
+            </div>
+
+            <div class="honeypot" aria-hidden="true">
+              <label for="botcheck">Leave this empty</label>
+              <input type="checkbox" id="botcheck" name="botcheck" tabindex="-1" autocomplete="off">
+            </div>
+
+            <div class="submit-row">
+              <button type="submit" class="btn btn-primary" id="submitBtn">Get help now</button>
+              <span class="submit-note">Files your ticket and answers you on this page.</span>
+            </div>
+            <div id="formError" class="err-text" role="alert"></div>
+          </form>
+
+          <div class="reply" id="reply" hidden aria-live="polite">
+            <div class="reply-card">
+              <div class="reply-head" id="replyHead">
+                <span class="badge" id="replyBadge">Assistant</span>
+                <span class="kicker" id="replyKicker"></span>
+                <span class="ticket mono" id="replyTicket"></span>
+              </div>
+              <div class="reply-body" id="replyBody"></div>
+              <div class="reply-foot" id="replyFoot">
+                <span class="q" id="replyQ">Did that solve it?</span>
+                <button type="button" class="btn btn-ghost" id="solvedBtn">That fixed it</button>
+                <button type="button" class="btn btn-red" id="humanBtn">Still stuck — get a human</button>
+              </div>
+              <div class="delivery mono" id="delivery"></div>
+            </div>
+
+            <div class="stub" id="stub" hidden>
+              <div class="top">
+                <div class="eyebrow">Ticket filed</div>
+                <div class="big" id="stubTitle">A human is on it</div>
+                <p id="stubNote"></p>
+              </div>
+              <div class="perf"></div>
+              <div class="bot">
+                <span>Ticket<b id="stubId">—</b></span>
+                <span>Filed<b id="stubTime">—</b></span>
+                <span>Reply to<b id="stubEmail">—</b></span>
+                <span>Expect<b id="stubSla">—</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- side column ---------- -->
+      <aside style="display:grid;gap:20px">
+        <div class="card card-pad">
+          <h2>What happens next</h2>
+          <ol class="pipe">
+            <li>
+              <span class="node" aria-hidden="true">1</span>
+              <span class="txt"><b>The assistant reads it</b><span>Matched against everything we've already solved, right in your browser.</span></span>
+            </li>
+            <li>
+              <span class="node" aria-hidden="true">2</span>
+              <span class="txt"><b>You get an answer, or a person</b><span>A confident match is answered here. Anything else is flagged and handed over.</span></span>
+            </li>
+            <li>
+              <span class="node grey" aria-hidden="true">3</span>
+              <span class="txt"><b>We get the ticket either way</b><span>Every submission lands in the Fliparo inbox, so nothing goes missing.</span></span>
+            </li>
+          </ol>
+        </div>
+
+        <div class="card card-pad">
+          <h2>Fixed in a minute</h2>
+          <p style="font-size:13px;color:var(--muted);margin-top:6px">The ones we answer most.</p>
+          <div class="kb" id="kbList"></div>
+        </div>
+
+        <div class="mail-card">
+          <div class="eyebrow">Prefer email?</div>
+          <p>Write to us directly — it lands in the same queue:<br>
+          <a id="mailtoLink" href="#">support@example.com</a></p>
+        </div>
+      </aside>
+    </div>
+
+    <div class="pad">
+      <div class="foot">
+        <span>© <span id="year"></span> Fliparo</span>
+        <span class="mono">fliparo.net</span>
+        <span style="margin-left:auto" class="mono" id="footSla"></span>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ============================================================================
+   FLIPARO SUPPORT DESK
+   ----------------------------------------------------------------------------
+   ①  TURN ON EMAIL  →  web3forms.com , enter fliparoFAQ@gmail.com, get a free
+       access key, paste it into CONFIG.accessKey. That's the whole setup.
+   ②  CHECK THE LINKS  →  the left rail points at /, /plan, /profile. Fix those
+       hrefs in the markup above if your routes differ.
+   ③  TEACH THE ASSISTANT  →  edit the KB array. Each entry is
+       { id, category, q, keys, answer }. `keys` are the phrases that trigger it.
+   ========================================================================== */
+
+const CONFIG = {
+  brand: "Fliparo",
+  domain: "fliparo.net",
+  supportEmail: "fliparoFAQ@gmail.com",
+
+  provider: "web3forms",                          // "web3forms" | "formspree"
+  accessKey: "PASTE_YOUR_WEB3FORMS_ACCESS_KEY",   // ← from web3forms.com
+  formspreeEndpoint: "",                          // e.g. https://formspree.io/f/xxxxxxx
+
+  sla: "within 24 hours",
+  slaUrgent: "within a few hours",
+
+  confidence: 3.0                                 // lower = answers more, guesses more
+};
+
+/* ---------------------------------------------------------------------------
+   KNOWLEDGE BASE
+   Written against how Fliparo actually works: passwordless email codes, eBay
+   connection, photo -> valuation -> one-tap listing. Adjust the wording to
+   match your exact screens. Anything the assistant can't match confidently is
+   escalated rather than guessed at, so gaps here are safe.
+--------------------------------------------------------------------------- */
+const KB = [
+  {
+    id: "code",
+    category: "signin",
+    q: "My six-digit sign-in code never arrived",
+    keys: ["code","six digit","6 digit","verification","didn't get","did not get","never arrived","can't sign in","cant sign in","can't log in","cant log in","login","log in","sign in","send me a code","expired","invalid code"],
+    answer: {
+      lead: "Fliparo has no passwords — you enter your email and we send a six-digit code. When it doesn't show up it's almost always one of these.",
+      steps: [
+        "Check spam and promotions. The code comes from an automated address and gets filtered on first use.",
+        "Make sure it's the <b>exact</b> email your account was made with. A typo sends the code somewhere real and silent.",
+        "Codes expire fast. If more than a few minutes passed, request a new one and use the newest email — older codes stop working.",
+        "Only the most recent code is valid, so if you tapped “Send me a code” twice, use the second email."
+      ],
+      tail: "Nothing after all that? Say so below and we'll look the account up by hand."
+    }
+  },
+  {
+    id: "ebay",
+    category: "ebay",
+    q: "eBay says disconnected, or the connection check fails",
+    keys: ["ebay connection","checking your ebay","disconnected","reconnect","connect ebay","link ebay","authorize","authorise","authorization","oauth","token","not connected","connection failed","sandbox","production"],
+    answer: {
+      lead: "The eBay link is an authorisation eBay controls, and it lapses on their schedule — usually after you change your eBay password or revoke app access there.",
+      steps: [
+        "Open <b>Profile</b> and disconnect eBay, then connect it again.",
+        "Finish the whole eBay sign-in in the window that opens and let it redirect back on its own — closing early leaves the link half-made.",
+        "Sign in to the eBay account that actually holds your listings; a second eBay account will connect happily and then list nothing where you expect."
+      ],
+      tail: "If it shows connected but the check still fails, that's ours — send it over."
+    }
+  },
+  {
+    id: "listing-error",
+    category: "listing",
+    q: "Listing stops at “Creating the listing”",
+    keys: ["creating the listing","invalid item condition","condition id","condition_id","primary category","invalid category","listing failed","won't list","wont list","stopped","failed to publish","publishing","offer","5000","error listing"],
+    answer: {
+      lead: "That step fails when eBay rejects the item's <b>condition</b> for the category it was filed under. eBay allows different conditions per category, and a mixed lot is the usual culprit — the condition that suits a single card isn't valid for a card lot.",
+      steps: [
+        "Open the item and change the <b>category</b> to the one eBay actually wants (for mixed card lots that's a lots category, not a single-card one).",
+        "Then reset the <b>condition</b> — after a category change the old condition may no longer be offered.",
+        "Retry the listing. The pipeline picks up from the failed step, so you don't re-upload photos.",
+        "If the error names a specific ID like <code>CONDITION_ID</code>, paste that whole line into a ticket — it tells us exactly which field eBay refused."
+      ],
+      tail: "Same error on a second item? Send it — that's a mapping bug on our side, not something you should have to work around."
+    }
+  },
+  {
+    id: "valuation",
+    category: "valuation",
+    q: "The valuation looks wrong",
+    keys: ["valuation","worth","value","price","estimate","comps","comparable","too low","too high","wrong price","undervalued","overvalued","condition assessment","graded"],
+    answer: {
+      lead: "Valuations come from what comparable items actually sold for, not what they're listed at — which is why the number is often lower than what you see on live listings.",
+      steps: [
+        "Check the condition we assessed. Condition moves the number more than anything else, and a photo that hides wear reads as better than the item is.",
+        "Reshoot with the whole item in frame, flat light, and any flaws visible — <b>Photograph another</b> re-runs the comps.",
+        "For a lot, photograph the whole lot together. One card photographed alone gets priced as one card."
+      ],
+      tail: "If it's still off by a lot on something you know the market for, tell us the item and what you think it's worth — that feedback is how the comps get better."
+    }
+  },
+  {
+    id: "scan",
+    category: "scan",
+    q: "The photo won't upload or analyse",
+    keys: ["photo","upload","camera","won't upload","wont upload","stuck","analyzing","analysing","analyze this item","spinning","take a photo","scan","blurry","permission"],
+    answer: {
+      lead: "Uploads stall for two boring reasons far more often than any real bug.",
+      steps: [
+        "Camera permission. If the view is black, allow camera access for fliparo.net in your browser's site settings and reload.",
+        "Connection. A photo that sits at “Preparing photos” is usually a weak upload — switch off cellular-saver or try wifi and retry.",
+        "Hard-refresh the page (Ctrl/Cmd + Shift + R). A half-updated app cached in the browser causes most blank or frozen screens."
+      ],
+      tail: "Survives all three? We want it — send the ticket with what device and browser you're on."
+    }
+  },
+  {
+    id: "inventory",
+    category: "inventory",
+    q: "An item is missing from my inventory",
+    keys: ["inventory","missing","disappeared","not showing","gone","item count","estimated value","recent scans","dashboard","totals","not updating"],
+    answer: {
+      lead: "Inventory shows what finished scanning, so anything mid-pipeline is real but not counted yet.",
+      steps: [
+        "Look for the item under recent scans — one that never finished analysing won't appear in totals.",
+        "Confirm you're signed in as the same email you scanned with. Two accounts is the most common cause of a “missing” item.",
+        "Pull to refresh, or reload the page; dashboard totals recalculate on load."
+      ],
+      tail: "If you can see the scan but the item is genuinely gone, send us its name and we'll dig it out."
+    }
+  },
+  {
+    id: "plan",
+    category: "billing",
+    q: "Plans, limits and billing",
+    keys: ["plan","premium","upgrade","downgrade","unlimited","item limit","limit","billing","invoice","receipt","subscription","renew","annual","yearly","price","cost","payment","card"],
+    answer: {
+      lead: "Everything about your plan lives on the <b>Plan</b> page — what you're on, when it renews, and what it costs.",
+      steps: [
+        "Free plans cap how many items you can hold; Premium is unlimited. The bar on the Plan page shows where you are.",
+        "Upgrading takes effect immediately — you don't need to re-scan anything.",
+        "A declined card usually just needs re-entering. Banks void the stored card when they reissue it."
+      ],
+      tail: "Anything about a charge you don't recognise goes to a person, not the assistant. Use the button below."
+    }
+  },
+  {
+    id: "idea",
+    category: "idea",
+    q: "I've got a feature idea",
+    keys: ["feature","idea","suggestion","would be great","please add","wish","request","roadmap","support for"],
+    answer: {
+      lead: "Send it. Ideas go on the list a human reads, and we reply to tell you where yours landed.",
+      steps: [],
+      tail: "Your ticket is already filed and tagged as an idea — nothing else to do."
+    }
+  }
+];
+
+/* Never answered by the assistant — money, security, legal, account access. */
+const FORCE_HUMAN = [
+  "charged twice","double charged","charged me twice","chargeback","refund","refunded","money back",
+  "fraud","fraudulent","scam","hacked","breach","stolen","someone else","not me","unauthorized","unauthorised",
+  "suspended","banned","restricted","closed my account","delete my account","delete my data","export my data",
+  "lawyer","legal","lawsuit","sue","police","gdpr","ccpa",
+  "where do you store","how do you store","is it safe","stored securely","my ebay password","credentials","privacy policy"
+];
+
+/* ========================================================================== */
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const DEMO = !( (CONFIG.provider === "web3forms" && CONFIG.accessKey && !CONFIG.accessKey.startsWith("PASTE"))
+             || (CONFIG.provider === "formspree" && CONFIG.formspreeEndpoint) );
+
+let TICKET = null;
+
+(function boot(){
+  $("year").textContent = new Date().getFullYear();
+  $("footSla").textContent = "typical first reply: " + CONFIG.sla;
+  $("slaPill").innerHTML = '<span class="dot"></span> replies ' + esc(CONFIG.sla);
+  $("topRight").textContent = CONFIG.domain + " / support";
+  const m = $("mailtoLink");
+  m.textContent = CONFIG.supportEmail;
+  m.href = "mailto:" + CONFIG.supportEmail + "?subject=" + encodeURIComponent(CONFIG.brand + " support");
+  if (DEMO) $("setupBanner").hidden = false;
+
+  $("kbList").innerHTML = KB.map(e => `
+    <details class="kb-item">
+      <summary>${esc(e.q)}</summary>
+      <div class="ans">${renderAnswer(e.answer)}</div>
+    </details>`).join("");
+})();
+
+function renderAnswer(a){
+  let h = `<p>${a.lead}</p>`;
+  if (a.steps && a.steps.length) h += `<ol>${a.steps.map(s => `<li>${s}</li>`).join("")}</ol>`;
+  if (a.tail) h += `<p>${a.tail}</p>`;
+  return h;
+}
+
+/* ---------- triage ---------- */
+function triage(text, category){
+  const t = " " + text.toLowerCase().replace(/\s+/g, " ") + " ";
+
+  for (const phrase of FORCE_HUMAN){
+    if (t.includes(phrase)) return { match: null, score: 0, reason: "sensitive" };
+  }
+  if (text.trim().length < 25) return { match: null, score: 0, reason: "too-short" };
+
+  let best = null, bestScore = 0;
+  for (const entry of KB){
+    let score = 0;
+    for (const k of entry.keys){
+      if (t.includes(k)) score += k.includes(" ") ? 2 : 1;
+    }
+    if (score > 0 && entry.category === category) score += 1.5;
+    if (score > bestScore){ bestScore = score; best = entry; }
+  }
+  if (best && bestScore >= CONFIG.confidence) return { match: best, score: bestScore, reason: "matched" };
+  return { match: null, score: bestScore, reason: "no-match" };
+}
+
+function ticketId(){
+  return "FLP-" + Date.now().toString(36).toUpperCase().slice(-5) + "-" +
+         Math.random().toString(36).slice(2,5).toUpperCase();
+}
+
+/* ---------- delivery ---------- */
+async function sendEmail(ticket, status, note){
+  const body = [
+    `Ticket:    ${ticket.id}`,
+    `Status:    ${status}`,
+    `From:      ${ticket.name} <${ticket.email}>`,
+    `Category:  ${ticket.category}`,
+    ticket.ref ? `Item:      ${ticket.ref}` : null,
+    `Filed:     ${ticket.time}`,
+    ``,
+    `SUBJECT`,
+    ticket.subject,
+    ``,
+    `MESSAGE`,
+    ticket.message,
+    ``,
+    `ASSISTANT`,
+    note,
+    ``,
+    `— ${CONFIG.brand} support desk, ${CONFIG.domain}`
+  ].filter(l => l !== null).join("\n");
+
+  const subject = `[${status}] ${CONFIG.brand} ${ticket.id} — ${ticket.subject}`;
+
+  if (DEMO){
+    console.log("[preview] would email " + CONFIG.supportEmail + "\n" + subject + "\n\n" + body);
+    return { ok:false, demo:true };
+  }
+
+  try {
+    if (CONFIG.provider === "formspree"){
+      const r = await fetch(CONFIG.formspreeEndpoint, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json", "Accept":"application/json" },
+        body: JSON.stringify({ _subject: subject, _replyto: ticket.email, email: ticket.email, name: ticket.name, message: body })
+      });
+      return { ok: r.ok };
+    }
+    const r = await fetch("https://api.web3forms.com/submit", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Accept":"application/json" },
+      body: JSON.stringify({
+        access_key: CONFIG.accessKey,
+        subject: subject,
+        from_name: CONFIG.brand + " Support Desk",
+        replyto: ticket.email,
+        botcheck: ticket.botcheck ? "true" : "",
+        "Ticket ID": ticket.id,
+        "Status": status,
+        "Customer": `${ticket.name} <${ticket.email}>`,
+        "Category": ticket.category,
+        "Item": ticket.ref || "—",
+        message: body
+      })
+    });
+    const j = await r.json().catch(() => ({}));
+    return { ok: r.ok && j.success !== false };
+  } catch (e){
+    console.error("delivery failed", e);
+    return { ok:false, error:true };
+  }
+}
+
+function setDelivery(state){
+  const d = $("delivery");
+  d.classList.toggle("err", state === "failed" || state === "demo");
+  if (state === "sending") d.textContent = "sending a copy to the team…";
+  else if (state === "sent") d.innerHTML = "<b>✓ copy delivered</b> — the team has your ticket, replying to " + esc(TICKET.email);
+  else if (state === "escalated") d.innerHTML = "<b>✓ escalated</b> — flagged for a human, replying to " + esc(TICKET.email);
+  else if (state === "demo") d.innerHTML = "<b>preview mode</b> — nothing was emailed. Add your access key to switch delivery on.";
+  else d.innerHTML = "<b>✗ delivery failed</b> — email us directly at " + esc(CONFIG.supportEmail);
+}
+
+/* ---------- submit ---------- */
+$("ticketForm").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const el = ev.currentTarget.elements;
+  const err = $("formError");
+  err.textContent = "";
+
+  const ticket = {
+    id: ticketId(),
+    name: el.name.value.trim(),
+    email: el.email.value.trim(),
+    category: el.category.value,
+    ref: el.ref.value.trim(),
+    subject: el.subject.value.trim(),
+    message: el.message.value.trim(),
+    botcheck: $("botcheck").checked,
+    time: new Date().toLocaleString()
+  };
+
+  if (!ticket.name || !ticket.email || !ticket.subject || !ticket.message){
+    err.textContent = "We need your name, email, a summary and the details — otherwise there's nothing to go on.";
+    return;
+  }
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(ticket.email)){
+    err.textContent = "That email doesn't look right, and we'd have nowhere to reply.";
+    return;
+  }
+
+  TICKET = ticket;
+  const btn = $("submitBtn");
+  btn.disabled = true; btn.textContent = "Reading it…";
+
+  const verdict = triage(ticket.subject + " " + ticket.message, ticket.category);
+  renderReply(verdict);
+
+  setDelivery("sending");
+  const status = verdict.match ? "AUTO-ANSWERED" : "NEEDS HUMAN";
+  const note = verdict.match
+    ? `Answered on the page with: "${verdict.match.q}" (confidence ${verdict.score.toFixed(1)}). Customer has not yet confirmed whether it worked.`
+    : `No confident answer (${verdict.reason}). Needs a human reply.`;
+  const res = await sendEmail(ticket, status, note);
+  setDelivery(res.demo ? "demo" : res.ok ? (verdict.match ? "sent" : "escalated") : "failed");
+
+  if (!verdict.match) showStub("escalated");
+
+  btn.disabled = false; btn.textContent = "Send another";
+  $("reply").scrollIntoView({ behavior:"smooth", block:"nearest" });
+});
+
+function renderReply(verdict){
+  const head = $("replyHead");
+  $("reply").hidden = false;
+  $("replyTicket").textContent = TICKET.id;
+  $("stub").hidden = true;
+
+  if (verdict.match){
+    head.classList.remove("is-human");
+    $("replyBadge").textContent = "Assistant";
+    $("replyKicker").textContent = "answered instantly";
+    $("replyBody").innerHTML = `<h3>${esc(verdict.match.q)}</h3>` + renderAnswer(verdict.match.answer);
+    $("replyQ").textContent = "Did that solve it?";
+    $("replyFoot").hidden = false;
+  } else {
+    head.classList.add("is-human");
+    $("replyBadge").textContent = "Escalated";
+    $("replyKicker").textContent = verdict.reason === "sensitive" ? "this one needs a person" : "no confident answer";
+    const why = verdict.reason === "sensitive"
+      ? "Anything about money, account access or your data goes to a person. I'm not going to guess at it."
+      : verdict.reason === "too-short"
+        ? "There isn't enough here for me to be sure what's wrong, and a wrong answer costs you more time than a real one."
+        : "I couldn't match this to anything we've already solved, so guessing would waste your time.";
+    $("replyBody").innerHTML =
+      `<h3>I've handed this to a human</h3><p>${esc(why)}</p>
+       <p>Your ticket is filed and flagged. Someone will reply to <b>${esc(TICKET.email)}</b> ${esc(CONFIG.sla)}.</p>`;
+    $("replyFoot").hidden = true;
+  }
+}
+
+/* ---------- follow-ups ---------- */
+$("solvedBtn").addEventListener("click", async () => {
+  $("replyFoot").hidden = true;
+  $("replyBody").innerHTML = `<h3>Good — closing it out</h3>
+    <p>Nothing else to do. Ticket <b class="mono">${esc(TICKET.id)}</b> is marked resolved,
+    and we still have a copy in case it comes back.</p>`;
+  await sendEmail(TICKET, "RESOLVED BY ASSISTANT", "Customer confirmed the automated answer solved it. No reply needed.");
+});
+
+$("humanBtn").addEventListener("click", async (ev) => {
+  ev.currentTarget.disabled = true;
+  $("replyFoot").hidden = true;
+  $("replyBody").innerHTML = `<h3>Sent to a person</h3>
+    <p>The automated answer didn't do it, so this went to the top of the queue with a note that it's
+    already been tried. You'll hear back at <b>${esc(TICKET.email)}</b> ${esc(CONFIG.slaUrgent)}.</p>`;
+  setDelivery("sending");
+  const res = await sendEmail(TICKET, "URGENT — NEEDS HUMAN",
+    "Customer read the automated answer and said it did NOT solve the problem. Escalated manually from the page.");
+  setDelivery(res.demo ? "demo" : res.ok ? "escalated" : "failed");
+  showStub("urgent");
+});
+
+function showStub(kind){
+  $("stub").hidden = false;
+  $("stubId").textContent = TICKET.id;
+  $("stubTime").textContent = TICKET.time;
+  $("stubEmail").textContent = TICKET.email;
+  $("stubSla").textContent = kind === "urgent" ? CONFIG.slaUrgent : CONFIG.sla;
+  $("stubTitle").textContent = kind === "urgent" ? "Escalated to a human" : "A human is on it";
+  $("stubNote").textContent = kind === "urgent"
+    ? "Marked urgent because the automated answer already failed."
+    : "Keep this ticket number handy if you write in again.";
+}
+</script>
+
+</body>
+</html>
