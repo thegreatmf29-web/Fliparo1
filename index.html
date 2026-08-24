@@ -871,8 +871,26 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 /* code input */
 .code-in{display:flex;gap:9px;justify-content:center;margin:22px 0}
 .code-in input{width:46px;height:58px;text-align:center;font-size:24px;font-weight:800;
-  background:var(--card);border:1.5px solid var(--line);border-radius:15px;transition:border-color .18s}
+  background:var(--card);border:1.5px solid var(--line);border-radius:15px;
+  transition:border-color .18s,transform .18s}
 .code-in input:focus{border-color:var(--acc)}
+/* A filled box should look settled, not still waiting for input. */
+.code-in input.has{border-color:var(--line2)}
+/* A wrong code is worth one shake. Anything longer reads as a system fault
+   rather than a typo, and it is almost always a typo. */
+.code-in.wrong input{border-color:var(--red)}
+.code-in.wrong{animation:codeShake .34s cubic-bezier(.36,.07,.19,.97)}
+@keyframes codeShake{
+  10%,90%{transform:translateX(-2px)} 20%,80%{transform:translateX(4px)}
+  30%,50%,70%{transform:translateX(-7px)} 40%,60%{transform:translateX(7px)}}
+@media (prefers-reduced-motion:reduce){.code-in.wrong{animation:none}}
+
+/* Inline text button — for "Change" beside an email address, where a full
+   button would outweigh the sentence it sits in. */
+.linkish{color:var(--acc);font-weight:650;font-size:inherit;padding:0 2px;
+  background:none;border:0;cursor:pointer;text-underline-offset:3px}
+.linkish:hover{text-decoration:underline}
+.linkish:disabled{color:var(--dim);cursor:default;text-decoration:none}
 
 /* ══════════════════════════════════════════════════════════════════════════
    DESKTOP — not a stretched phone. Sidebar nav, real columns, wider rails.
@@ -1239,7 +1257,10 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 
       <div class="field">
         <label>Email</label>
+        <!-- enterkeyhint turns the phone keyboard's return key into "Go", which
+             is the difference between one tap and reaching for a button. -->
         <input class="inp" id="authEmail" type="email" inputmode="email" autocomplete="email"
+               enterkeyhint="go" autocapitalize="off" autocorrect="off" spellcheck="false"
                placeholder="you@example.com" onkeydown="if(event.key==='Enter')requestCode()">
       </div>
       <button class="btn btn-acc" onclick="requestCode()" id="authBtn">Send me a code</button>
@@ -1250,16 +1271,30 @@ textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
     <div id="authStep2" style="display:none">
       <div class="page-head">
         <h1>Check your<br>email</h1>
-        <p class="lead">We sent a code to <b style="color:var(--fg)" id="authTo"></b></p>
+        <p class="lead">We sent a six-digit code to <b style="color:var(--fg)" id="authTo"></b>
+          <button class="linkish" onclick="backToEmail()">Change</button></p>
       </div>
       <div class="err" id="authErr2"></div>
+      <!-- autocomplete="one-time-code" on the FIRST box only. Safari and Chrome
+           read the code out of the incoming mail and offer it above the
+           keyboard; the paste handler below spreads it across all six. Putting
+           the attribute on every box makes both browsers offer six times. -->
       <div class="code-in" id="codeIn">
-        <input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1">
-        <input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1">
-        <input inputmode="numeric" maxlength="1"><input inputmode="numeric" maxlength="1">
+        <input inputmode="numeric" maxlength="1" autocomplete="one-time-code" aria-label="Digit 1">
+        <input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Digit 2">
+        <input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Digit 3">
+        <input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Digit 4">
+        <input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Digit 5">
+        <input inputmode="numeric" maxlength="1" autocomplete="off" aria-label="Digit 6">
       </div>
       <button class="btn btn-acc" onclick="submitCode()" id="verifyBtn">Verify</button>
-      <button class="btn btn-ghost" style="margin-top:10px" onclick="backToEmail()">Use a different email</button>
+      <!-- The screen used to offer no way to ask for a second code. If the
+           first mail did not arrive, the only exit was to pretend you had a
+           different email address. -->
+      <button class="btn btn-ghost" style="margin-top:10px" onclick="resendCode()" id="resendBtn">Send it again</button>
+      <p style="font-size:12px;color:var(--dim);line-height:1.6;margin-top:14px;text-align:center">
+        Codes last ten minutes. Check spam before asking for another — a second code
+        cancels the first.</p>
       <div id="devCodeHint"></div>
     </div>
   </div>
@@ -1368,6 +1403,51 @@ const authHeaders = (extra = {}) => {
   if (token) h.authorization = 'Bearer ' + token;
   return h;
 };
+
+/* ─────────────── believing the token before the server answers ──────────────
+   The session token carries its own payload: `<base64url {e,t}>.<hmac>`. Only
+   the server can verify the signature, but anyone can READ the email and the
+   issue date out of it — and that is enough to render the signed-in shell
+   immediately.
+
+   Why it matters: this app runs on an instance that sleeps after fifteen idle
+   minutes and takes the better part of a minute to wake. Every /api/me on a
+   cold start used to fail, get swallowed, and leave `me` sitting at its
+   signed-out default — so the app showed "Not signed in", offered the sign-in
+   screen, and looked exactly like a session that had expired. Nothing was
+   wrong with the token at all.
+
+   So: trust the token optimistically, show the account as signed in, and let
+   the server correct the details when it wakes up. Quota numbers are the only
+   thing that could be briefly stale, and every action that spends quota is
+   checked server-side anyway.                                                */
+function tokenClaims(t) {
+  if (!t || typeof t !== 'string' || !t.includes('.')) return null;
+  try {
+    const json = atob(t.split('.')[0].replace(/-/g, '+').replace(/_/g, '/'));
+    const { e, t: issued } = JSON.parse(json);
+    if (!e || typeof issued !== 'number') return null;
+    /* Same 180 days the server enforces. Checked here purely so an obviously
+       dead token does not paint a signed-in shell that /api/me then tears
+       down — the server remains the authority. */
+    if (Date.now() - issued > 180 * 864e5) return null;
+    return { email: e, issuedAt: issued };
+  } catch { return null; }
+}
+
+/* True while we are trusting the token and still waiting on the first answer.
+   The UI uses it to say "Reconnecting…" instead of "Not signed in". */
+let meConfirmed = false;
+let serverWaking = false;
+
+(function optimisticSession() {
+  const c = tokenClaims(token);
+  if (!c) { if (token) setToken(null); return; }
+  const cached = store('meCache');
+  me = cached && cached.email === c.email
+    ? { ...cached, signedIn: true }
+    : { ...me, signedIn: true, email: c.email };
+})();
 
 /* ─────────────────────────────── data ─────────────────────────────── */
 /* eBay is the only marketplace with a public write API, so it is the only
@@ -1623,6 +1703,11 @@ function attachBarScroll(id) {
   barScrollFn();
 }
 
+/* The router does not keep a variable for this, so it is read back off the
+   DOM — the active screen is the one with the class. */
+const activeScreen = () =>
+  document.querySelector('.screen.active')?.id.replace('s-', '') || 'home';
+
 function renderNav() {
   document.getElementById('nav').innerHTML = navItems().map(t => t.scan
     ? `<button class="tab tab-scan" onclick="startScan()">
@@ -1785,15 +1870,57 @@ async function onGoogleCredential(resp) {
    loud rather than bouncing the user back to the sign-in screen forever. */
 let authRejected = false;
 
-async function refreshMe() {
-  try {
-    const r = await fetch(API + '/api/me', { headers: authHeaders() });
-    if (!r.ok) throw new Error('me ' + r.status);
-    const j = await r.json();
-    authRejected = j.signedIn === false && !!token;
-    if (authRejected) setToken(null);   // expired or rejected
-    me = j;
-  } catch { /* offline: keep whatever we had */ }
+/* There is exactly one condition under which the browser throws a token away:
+   the server looked at it and said 401 invalid_token. Not a timeout, not a
+   500, not a 503, not a failed fetch — the old code treated all of those as
+   "signed out" and deleted the token, which is why a sleeping instance or a
+   two-second database blip logged people out for good.
+
+   `soft` is for the boot call: it retries through a cold start instead of
+   giving up on the first failure. */
+async function refreshMe({ soft = false } = {}) {
+  const attempts = soft ? [0, 1500, 4000, 9000] : [0];
+
+  for (let i = 0; i < attempts.length; i++) {
+    if (attempts[i]) await new Promise(r => setTimeout(r, attempts[i]));
+    try {
+      const r = await fetch(API + '/api/me', { headers: authHeaders() });
+      const j = await r.json().catch(() => ({}));
+
+      /* The only destructive branch in this function. */
+      if (r.status === 401 && j.code === 'invalid_token') {
+        authRejected = !!token;
+        setToken(null);
+        store('meCache', null);
+        me = { signedIn: false, plan: 'free', scansUsed: j.scansUsed || 0,
+               scansLimit: j.scansLimit ?? 3, scansLeft: j.scansLeft ?? 3,
+               unlimited: false, autoList: false };
+        meConfirmed = true; serverWaking = false;
+        break;
+      }
+
+      /* Storage is down but our session is fine. Keep everything and try
+         again — showing a sign-in screen here would be a lie. */
+      if (r.status === 503) { serverWaking = true; continue; }
+      if (!r.ok) { serverWaking = true; continue; }
+
+      /* The server rolled us a fresh token because the old one was getting on.
+         Swapped in silently; the user never sees a thing. */
+      if (j.token) setToken(j.token);
+
+      me = j;
+      meConfirmed = true;
+      serverWaking = false;
+      authRejected = false;
+      if (j.signedIn) store('meCache', j);
+      break;
+    } catch {
+      /* Network error or a cold start still spinning up. Keep the optimistic
+         signed-in state and let the next attempt sort it out. */
+      serverWaking = true;
+    }
+  }
+
   renderNav();
   renderQuota();
 }
@@ -1841,13 +1968,106 @@ function renderQuota() {
 }
 
 function requireAccount(reason) {
-  pendingEmail = '';
   if (googleClientId) renderGoogleBtn();
+  hideErr('authErr'); hideErr('authErr2');
+
+  /* If a code is still in flight and still valid, land on the code screen
+     rather than making them start the whole thing over. */
+  if (restorePending()) {
+    document.getElementById('authTo').textContent = pendingEmail;
+    document.getElementById('authStep1').style.display = 'none';
+    document.getElementById('authStep2').style.display = '';
+    armResend(Number(store('resendReadyAt') || 0) - 30_000);
+    if (reason) showErr('authErr2', reason);
+    go('auth');
+    setTimeout(() => document.querySelector('#codeIn input')?.focus(), 300);
+    return;
+  }
+
+  pendingEmail = '';
   document.getElementById('authStep1').style.display = '';
   document.getElementById('authStep2').style.display = 'none';
-  hideErr('authErr'); hideErr('authErr2');
+  /* Nearly everyone signs in with the same address every time. */
+  const f = document.getElementById('authEmail');
+  if (f && !f.value) f.value = store('lastEmail') || '';
   if (reason) showErr('authErr', reason);
   go('auth');
+}
+
+/* The code screen is a real step, so it is a real piece of state. Reloading
+   mid-flow used to drop you back to the email field while the code sitting in
+   your inbox stayed valid for another nine minutes — you simply had no screen
+   left to type it into. Remembered for the ten minutes the code actually
+   lives. */
+const CODE_TTL = 10 * 60_000;
+
+function rememberPending(email) {
+  pendingEmail = email;
+  store('pendingAuth', email ? { email, at: Date.now() } : null);
+  store('lastEmail', email || store('lastEmail'));
+}
+
+function restorePending() {
+  const p = store('pendingAuth');
+  if (!p?.email || Date.now() - p.at > CODE_TTL) { store('pendingAuth', null); return false; }
+  pendingEmail = p.email;
+  return true;
+}
+
+/* Mirrors the server's own 30-second throttle. A button that is enabled and
+   then returns "a code was just sent" teaches people the button is broken. */
+let resendReadyAt = 0, resendTimer = null;
+
+function armResend(from = Date.now()) {
+  resendReadyAt = from + 30_000;
+  store('resendReadyAt', resendReadyAt);
+  clearInterval(resendTimer);
+  const tick = () => {
+    const btn = document.getElementById('resendBtn');
+    if (!btn) return;
+    const left = Math.ceil((resendReadyAt - Date.now()) / 1000);
+    if (left > 0) { btn.disabled = true; btn.textContent = `Send it again in ${left}s`; }
+    else { btn.disabled = false; btn.textContent = 'Send it again'; clearInterval(resendTimer); }
+  };
+  tick();
+  resendTimer = setInterval(tick, 1000);
+}
+
+function showCodeStep(email, devCode) {
+  rememberPending(email);
+  document.getElementById('authTo').textContent = email;
+  document.getElementById('authStep1').style.display = 'none';
+  document.getElementById('authStep2').style.display = '';
+  document.getElementById('devCodeHint').innerHTML = devCode
+    ? `<div class="card tight" style="margin-top:16px;font-size:13px;color:var(--mut);line-height:1.55">
+         <b style="color:var(--amb)">No email provider configured</b><br>
+         Your code is <b style="color:var(--fg);font-size:16px">${esc(devCode)}</b>.
+         Set BREVO_API_KEY on the server to email these instead.</div>` : '';
+  clearCodeBoxes();
+  armResend();
+  document.querySelector('#codeIn input')?.focus();
+}
+
+function clearCodeBoxes() {
+  document.querySelectorAll('#codeIn input').forEach(i => { i.value = ''; i.classList.remove('has'); });
+  document.getElementById('codeIn')?.classList.remove('wrong');
+}
+
+async function sendCodeTo(email, { resend = false } = {}) {
+  const errId = resend ? 'authErr2' : 'authErr';
+  hideErr(errId);
+  const r = await fetch(API + '/api/auth/request', {
+    method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
+    body: JSON.stringify({ email })
+  });
+  const j = await r.json().catch(() => ({}));
+
+  /* The server answers 429 with its own wording; the countdown is more use
+     than the sentence, so the button carries the message and the error line
+     stays quiet. */
+  if (r.status === 429) { armResend(); return { throttled: true }; }
+  if (!r.ok) throw new Error(j.error || 'Could not send that code.');
+  return j;
 }
 
 async function requestCode() {
@@ -1857,33 +2077,47 @@ async function requestCode() {
   const btn = document.getElementById('authBtn');
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
-    const r = await fetch(API + '/api/auth/request', {
-      method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
-      body: JSON.stringify({ email })
-    });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error);
-    pendingEmail = email;
-    document.getElementById('authTo').textContent = email;
-    document.getElementById('authStep1').style.display = 'none';
-    document.getElementById('authStep2').style.display = '';
-    document.getElementById('devCodeHint').innerHTML = j.devCode
-      ? `<div class="card tight" style="margin-top:16px;font-size:13px;color:var(--mut);line-height:1.55">
-           <b style="color:var(--amb)">No email provider configured</b><br>
-           Your code is <b style="color:var(--fg);font-size:16px">${j.devCode}</b>.
-           Set RESEND_API_KEY on the server to email these instead.</div>` : '';
-    document.querySelector('#codeIn input')?.focus();
+    const j = await sendCodeTo(email);
+    showCodeStep(email, j.devCode);
+    if (j.throttled) showErr('authErr2', 'A code was sent a moment ago — check your inbox before asking for another.');
   } catch (e) { showErr('authErr', friendlyError(e)); }
   finally { btn.disabled = false; btn.textContent = 'Send me a code'; }
+}
+
+async function resendCode() {
+  if (!pendingEmail || Date.now() < resendReadyAt) return;
+  const btn = document.getElementById('resendBtn');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const j = await sendCodeTo(pendingEmail, { resend: true });
+    clearCodeBoxes();
+    armResend();
+    if (j.devCode) document.getElementById('devCodeHint').innerHTML =
+      `<div class="card tight" style="margin-top:16px;font-size:13px;color:var(--mut)">
+         Your code is <b style="color:var(--fg);font-size:16px">${esc(j.devCode)}</b>.</div>`;
+    toast(j.throttled ? 'Already sent — check your inbox' : 'New code sent');
+    document.querySelector('#codeIn input')?.focus();
+  } catch (e) {
+    showErr('authErr2', friendlyError(e));
+    armResend();
+  }
 }
 
 function backToEmail() {
   document.getElementById('authStep1').style.display = '';
   document.getElementById('authStep2').style.display = 'none';
+  hideErr('authErr2');
+  clearCodeBoxes();
+  store('pendingAuth', null);
+  const f = document.getElementById('authEmail');
+  /* Prefilled rather than blank: they are here to correct a typo, not to
+     retype the whole address from scratch. */
+  if (f) { f.value = pendingEmail || ''; f.focus(); f.select?.(); }
 }
 
 async function submitCode() {
-  const code = [...document.querySelectorAll('#codeIn input')].map(i => i.value).join('');
+  const boxes = [...document.querySelectorAll('#codeIn input')];
+  const code = boxes.map(i => i.value).join('');
   hideErr('authErr2');
   if (code.length !== 6) return showErr('authErr2', 'Enter all six digits.');
   const btn = document.getElementById('verifyBtn');
@@ -1893,17 +2127,27 @@ async function submitCode() {
       method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
       body: JSON.stringify({ email: pendingEmail, code })
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.error);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || 'That code did not work.'), { status: r.status });
+
     setToken(j.token);
+    store('pendingAuth', null);
+    store('lastEmail', pendingEmail);
     if (!store('joined')) store('joined', Date.now());
+    meConfirmed = true;
     await refreshMe();
     toast('You are signed in');
     go(navStack.pop() || 'home', { replace: true });
   } catch (e) {
     showErr('authErr2', friendlyError(e));
-    document.querySelectorAll('#codeIn input').forEach(i => i.value = '');
-    document.querySelector('#codeIn input')?.focus();
+    const wrap = document.getElementById('codeIn');
+    wrap?.classList.add('wrong');
+    setTimeout(() => wrap?.classList.remove('wrong'), 400);
+    clearCodeBoxes();
+    /* An expired or burnt code cannot be retyped into working. Offering the
+       resend immediately is the only move left, so stop making them wait. */
+    if (/expired|new one|too many/i.test(e.message || '')) { resendReadyAt = 0; armResend(Date.now() - 30_000); }
+    boxes[0]?.focus();
   } finally { btn.disabled = false; btn.textContent = 'Verify'; }
 }
 
@@ -1912,6 +2156,9 @@ function signOut() {
   /* Leaving this behind produced "Not signed in" sitting directly above
      "Flipping since May 2026" on the profile screen. */
   store('joined', null);
+  store('meCache', null);
+  store('pendingAuth', null);
+  meConfirmed = true; serverWaking = false;
   me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:3, scansLeft:3, unlimited:false, autoList:false };
   renderNav(); renderQuota();
   toast('Signed out');
@@ -3013,8 +3260,12 @@ async function publishEbay(l) {
   try {
     pubStep(0, 'doing');
     const st = await fetch(API + '/api/ebay/status', { headers: authHeaders() }).then(r => r.json());
-    if (!st.configured) { pubStep(0, 'fail', 'eBay is not set up on this server'); document.getElementById('pubCancel').style.display=''; return showSheet('ebaySetup'); }
-    if (!st.connected)  { pubStep(0, 'fail', 'Connect your eBay account to continue'); document.getElementById('pubCancel').style.display=''; return connectEbay(); }
+    const stop = (msg) => { pubStep(0, 'fail', msg); document.getElementById('pubCancel').style.display = ''; };
+
+    if (st.unknown) { stop('Cannot reach the server right now'); return; }
+    if (!st.configured) { stop('eBay is not set up on this server'); return showSheet('ebaySetup'); }
+    if (st.requiresSignIn) { stop('Sign in to publish to eBay'); return requireAccount('Sign in to publish to eBay.'); }
+    if (!st.connected) { stop('Connect your eBay account to continue'); return connectEbay(); }
     pubStep(0, 'done', `Connected · ${st.env}`);
 
     /* eBay fetches photos by URL — it cannot take the base64 data URLs the
@@ -3057,6 +3308,11 @@ async function publishEbay(l) {
       pubStep(2, 'fail', j.error);
       document.getElementById('pubCancel').style.display = '';
       if (j.code === 'upgrade') showPaywall('listing');
+      /* The connection died between the status check and the publish — an
+         eighteen-month re-consent, or a revoke on eBay's side. Send them
+         straight back into the link flow rather than leaving a dead end. */
+      if (j.code === 'ebay_disconnected') connectEbay();
+      if (j.code === 'signup') requireAccount('Sign in to publish to eBay.');
       return;
     }
     pubStep(2, 'done', j.categoryName ? `${j.categoryName} · offer ${j.offerId}` : `Offer ${j.offerId}`);
@@ -3077,14 +3333,74 @@ async function publishEbay(l) {
   }
 }
 
+/* Linking eBay now requires being signed in, because the link is stored against
+   the account rather than against this browser. That is the whole fix: it
+   follows you to a phone, survives clearing site data, and cannot be inherited
+   by the next person to use this device. */
 async function connectEbay() {
+  if (!me.signedIn) {
+    return requireAccount('Sign in first — your eBay connection is saved to your account, not this browser.');
+  }
   try {
-    const r = await fetch(API + `/api/ebay/login?device=${DEVICE_ID}`);
-    const j = await r.json();
+    const r = await fetch(API + '/api/ebay/login', { headers: authHeaders() });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) return requireAccount('Sign in again to connect eBay.');
     if (!r.ok) return showSheet('ebaySetup');
-    window.open(j.url, '_blank', 'noopener');
-    toast('Finish signing in, then come back');
+
+    const w = window.open(j.url, '_blank', 'noopener');
+    if (!w) return showErr('planErr', 'Your browser blocked the eBay window. Allow pop-ups for Fliparo and try again.');
+    toast('Finish on eBay, then come back');
+    watchForEbayLink();
   } catch { showSheet('ebaySetup'); }
+}
+
+/* The consent flow finishes in another tab, so this one has to notice. The
+   callback page stamps localStorage, and returning focus re-checks the server —
+   between them the app updates itself instead of leaving a "Not connected" row
+   sitting there until the next reload. */
+function watchForEbayLink() {
+  let stop = false;
+  const finish = async () => {
+    if (stop) return;
+    const ok = await ebayLinked();
+    if (!ok) return;
+    stop = true;
+    cleanup();
+    toast('eBay connected');
+    await refreshMe();
+    if (activeScreen() === 'profile') renderProfile();
+  };
+  const onFocus = () => finish();
+  const onStorage = e => { if (e.key === 'rai.ebayJustLinked') finish(); };
+  const poll = setInterval(finish, 2500);
+  const giveUp = setTimeout(() => cleanup(), 5 * 60_000);
+  function cleanup() {
+    clearInterval(poll); clearTimeout(giveUp);
+    window.removeEventListener('focus', onFocus);
+    window.removeEventListener('storage', onStorage);
+  }
+  window.addEventListener('focus', onFocus);
+  window.addEventListener('storage', onStorage);
+}
+
+async function ebayLinked() {
+  try {
+    const r = await fetch(API + '/api/ebay/status', { headers: authHeaders() });
+    const j = await r.json();
+    return !!j.connected;
+  } catch { return false; }
+}
+
+async function disconnectEbay() {
+  try {
+    const r = await fetch(API + '/api/ebay/disconnect', {
+      method: 'POST', headers: authHeaders({ 'content-type': 'application/json' })
+    });
+    if (!r.ok) throw new Error('Could not disconnect');
+    toast('eBay disconnected');
+    await refreshMe();
+    if (activeScreen() === 'profile') renderProfile();
+  } catch (e) { toast(friendlyError(e)); }
 }
 
 /* ═════════════════════════════ SHEETS ═════════════════════════════ */
@@ -3351,6 +3667,12 @@ function renderProfile() {
         ${joined ? 'Flipping since ' + new Date(joined).toLocaleDateString('en-US',{month:'long',year:'numeric'}) : 'Welcome to Fliparo'}</div>
       <div style="margin-top:16px"><span class="badge ${me.plan === 'free' ? 'locked' : 'pro'}"
         style="font-size:12px;padding:7px 15px;border-radius:99px">${planName} plan</span></div>
+      ${/* Signed in, but the server has not confirmed the details yet — a
+           sleeping instance waking up. Saying so is honest and, more to the
+           point, stops the screen from offering a sign-in button to somebody
+           who is already signed in. */
+        me.signedIn && !meConfirmed && serverWaking
+        ? `<div style="margin-top:14px;font-size:12.5px;color:var(--dim)">Reconnecting to the server…</div>` : ''}
       ${me.signedIn ? '' : `<button class="btn btn-acc" style="margin:20px auto 0;max-width:230px" onclick="requireAccount()">Sign in</button>`}
     </div>
 
@@ -3388,15 +3710,45 @@ async function renderAccounts(elId) {
   try {
     eb = await fetch(API + '/api/ebay/status', { headers: authHeaders() }).then(r => r.json());
   } catch {}
+  /* Five states, and they want different words. The old line collapsed them
+     into "Tap to connect" or "Needs server setup", so a signed-out visitor and
+     a server that could not be reached read identically. */
+  const line = () => {
+    if (eb.unknown)        return 'Checking…';
+    if (!eb.configured)    return 'Needs server setup';
+    if (eb.connected)      return `<span class="badge auto">Connected · ${esc(eb.env || '')}</span>${reconsentNote(eb)}`;
+    if (eb.requiresSignIn) return 'Sign in to connect your account';
+    return 'Tap to connect your account';
+  };
+  const action = () => {
+    if (eb.unknown || !eb.configured) return "showSheet('ebaySetup')";
+    if (eb.connected) return 'confirmDisconnectEbay()';
+    return 'connectEbay()';
+  };
+
   el.innerHTML = `
-    <div class="plat" onclick="${eb.configured && !eb.connected ? 'connectEbay()' : "showSheet('ebaySetup')"}">
+    <div class="plat" onclick="${action()}">
       <div class="pic" style="background:#0064D2">e</div>
-      <div class="pinfo"><div class="pn">eBay</div><div class="pd">${
-        eb.connected ? `<span class="badge auto">Connected · ${eb.env}</span>`
-        : eb.configured ? 'Tap to connect your account' : 'Needs server setup'}</div></div></div>
+      <div class="pinfo"><div class="pn">eBay</div><div class="pd">${line()}</div></div></div>
     <div class="plat" onclick="showSheet('legal')" style="opacity:.75">
       <div class="pic" style="background:var(--card2);color:var(--mut)">?</div>
       <div class="pinfo"><div class="pn">Other marketplaces</div><div class="pd">Why eBay is the only one</div></div></div>`;
+}
+
+/* eBay makes every seller consent again when the refresh token reaches
+   eighteen months. Warning inside the last fortnight turns a publish that would
+   have died mid-flow into a thirty-second job done at a convenient moment. */
+function reconsentNote(eb) {
+  if (!eb?.reconsentDue) return '';
+  const days = Math.ceil((eb.reconsentDue - Date.now()) / 864e5);
+  if (days > 14) return '';
+  return `<div style="color:var(--amb);margin-top:4px;font-size:12px">${
+    days <= 0 ? 'Reconnect needed' : `Reconnect within ${days} day${days === 1 ? '' : 's'}`}</div>`;
+}
+
+function confirmDisconnectEbay() {
+  if (!confirm('Disconnect eBay?\n\nDrafts and inventory stay. You will need to reconnect before publishing again.')) return;
+  disconnectEbay();
 }
 
 function renderSettings() {
@@ -3624,22 +3976,70 @@ function shareResult() {
 
 /* ═════════════════════════════ CODE INPUT ═════════════════════════════ */
 document.querySelectorAll('#codeIn input').forEach((inp, i, all) => {
+  const spread = digits => {
+    [...digits].forEach((c, k) => { if (all[k]) { all[k].value = c; all[k].classList.add('has'); } });
+    if (digits.length === 6) { all[5].blur(); submitCode(); }
+    else all[Math.min(digits.length, 5)].focus();
+  };
+
   inp.addEventListener('input', () => {
-    inp.value = inp.value.replace(/\D/g, '').slice(0, 1);
+    /* iOS one-time-code autofill drops all six digits into whichever box is
+       focused, so an input event carrying more than one digit is a fill, not a
+       keystroke, and gets spread across the row. Without this the autofill
+       suggestion lands six characters in one box, is truncated to one, and
+       looks broken at the exact moment it was meant to feel effortless. */
+      const raw = inp.value.replace(/\D/g, '');
+    if (raw.length > 1) { inp.value = ''; return spread(raw.slice(0, 6)); }
+
+    inp.value = raw.slice(0, 1);
+    inp.classList.toggle('has', !!inp.value);
+    document.getElementById('codeIn')?.classList.remove('wrong');
     if (inp.value && all[i + 1]) all[i + 1].focus();
-    if (i === all.length - 1 && [...all].every(x => x.value)) submitCode();
+    if (i === all.length - 1 && [...all].every(x => x.value)) { inp.blur(); submitCode(); }
   });
+
   inp.addEventListener('keydown', e => {
-    if (e.key === 'Backspace' && !inp.value && all[i - 1]) all[i - 1].focus();
+    if (e.key === 'Backspace' && !inp.value && all[i - 1]) {
+      /* Clear the previous box as well as moving to it. Backspacing into a
+         full box and having to press it twice is a small thing that everybody
+         notices. */
+      all[i - 1].value = '';
+      all[i - 1].classList.remove('has');
+      all[i - 1].focus();
+      e.preventDefault();
+    }
+    if (e.key === 'ArrowLeft' && all[i - 1]) { all[i - 1].focus(); e.preventDefault(); }
+    if (e.key === 'ArrowRight' && all[i + 1]) { all[i + 1].focus(); e.preventDefault(); }
   });
+
+  inp.addEventListener('focus', () => inp.select());
+
   inp.addEventListener('paste', e => {
     const d = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
     if (!d) return;
     e.preventDefault();
-    [...d].forEach((c, k) => { if (all[k]) all[k].value = c; });
-    if (d.length === 6) submitCode(); else all[Math.min(d.length, 5)].focus();
+    spread(d);
   });
 });
+
+/* Chrome and Safari on desktop can hand the code over through the Web OTP /
+   credential pipeline instead of the keyboard. Feature-detected, aborted when
+   the user leaves the screen, and completely silent where it is unsupported. */
+if ('OTPCredential' in window) {
+  window.addEventListener('DOMContentLoaded', () => {
+    const step = document.getElementById('authStep2');
+    if (!step) return;
+    navigator.credentials.get({ otp: { transport: ['sms'] } })
+      .then(otp => {
+        const d = String(otp?.code || '').replace(/\D/g, '').slice(0, 6);
+        if (d.length === 6 && step.style.display !== 'none') {
+          document.querySelectorAll('#codeIn input').forEach((b, k) => { b.value = d[k]; b.classList.add('has'); });
+          submitCode();
+        }
+      })
+      .catch(() => { /* dismissed, unsupported, or no code — the keyboard still works */ });
+  });
+}
 
 /* ═════════════════════════════ BOOT ═════════════════════════════ */
 function showServerBanner() {
@@ -3703,7 +4103,9 @@ function armReveals(screenId) {
   if (OFFLINE_FILE) showServerBanner();
   else fetch(API + '/api/health').then(r => { if (!r.ok) throw 0; }).catch(showServerBanner);
 
-  await Promise.all([refreshMe(), loadPlans(), loadAuthConfig()]);
+  /* soft: retries through a cold start instead of concluding "signed out" the
+     first time a sleeping instance fails to answer. */
+  await Promise.all([refreshMe({ soft: true }), loadPlans(), loadAuthConfig()]);
   go('home', { replace: true });
 })();
 
