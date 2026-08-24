@@ -847,6 +847,42 @@ const EBAY_CONDITION = {
   'Poor': 'USED_ACCEPTABLE'
 };
 
+/* ─────────────────────────── description hygiene ────────────────────────────
+   The model returns the description as plain text with \n line breaks, and it
+   used to go to eBay exactly as written. eBay parses a description as HTML, so
+   three things in ordinary prose break the publish call:
+
+     • a bare &  — "Pokemon & friends" is an unterminated entity
+     • a bare < or >  — "<3", "10 > 9" open a tag that never closes
+     • \n  — not a line break in HTML, so the listing renders as one blob
+
+   and two more get the offer rejected outright:
+
+     • an empty or whitespace-only description
+     • a description past the field's limit (4000 chars on the inventory item's
+       product.description; the offer's listingDescription allows far more)
+
+   Escape first, then turn the newlines into <br>, so the breaks we add survive
+   the escaping. Truncation never lands inside an entity or a tag.            */
+function ebayDescription(text, { limit = 4000 } = {}) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return 'See photos for condition and details.';
+
+  const html = raw
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r\n?/g, '\n')
+    .replace(/\n{2,}/g, '<br><br>')
+    .replace(/\n/g, '<br>');
+
+  if (html.length <= limit) return html;
+  return html.slice(0, limit - 1)
+    .replace(/&[a-z]*$/i, '')   // half-written entity
+    .replace(/<[^>]*$/, '')     // half-written tag
+    + '…';
+}
+
 /* ==========================================================================
    POST /api/images
    Body: { images: [dataUrl, ...] }  →  { urls: [absolute https urls] }
@@ -1030,15 +1066,24 @@ app.post('/api/ebay/publish', async (req, res) => {
     if (item.styleCode) aspects['Style Code'] = [String(item.styleCode)];
 
     // 1. inventory item
+    const condition = EBAY_CONDITION[item.conditionGrade] || 'USED_GOOD';
+
+    /* eBay accepts conditionDescription only on used conditions — send it with
+       NEW_WITH_TAGS or NEW_WITHOUT_TAGS and the whole call is rejected. It also
+       caps at 1000 characters. */
+    const conditionDescription = condition.startsWith('USED_')
+      ? String(item.conditionSummary || '').trim().slice(0, 1000) || undefined
+      : undefined;
+
     await ebayFetch(token, `/sell/inventory/v1/inventory_item/${sku}`, {
       method: 'PUT',
       body: JSON.stringify({
         availability: { shipToLocationAvailability: { quantity: 1 } },
-        condition: EBAY_CONDITION[item.conditionGrade] || 'USED_GOOD',
-        conditionDescription: item.conditionSummary || undefined,
+        condition,
+        conditionDescription,
         product: {
-          title: String(listing.title).slice(0, 80),
-          description: listing.description,
+          title: String(listing.title || '').trim().slice(0, 80) || 'Untitled item',
+          description: ebayDescription(listing.description),
           aspects,
           imageUrls: imageUrls.slice(0, 12)
         }
@@ -1052,7 +1097,7 @@ app.post('/api/ebay/publish', async (req, res) => {
         sku, marketplaceId: 'EBAY_US', format: 'FIXED_PRICE',
         availableQuantity: 1,
         categoryId,
-        listingDescription: listing.description,
+        listingDescription: ebayDescription(listing.description, { limit: 500000 }),
         pricingSummary: { price: { value: String(listing.suggestedPrice), currency: 'USD' } },
         listingPolicies: {
           fulfillmentPolicyId: process.env.EBAY_FULFILLMENT_POLICY_ID,
