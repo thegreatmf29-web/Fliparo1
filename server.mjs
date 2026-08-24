@@ -847,6 +847,104 @@ const EBAY_CONDITION = {
   'Poor': 'USED_ACCEPTABLE'
 };
 
+/* ──────────────────────── conditions are per-category ───────────────────────
+   This is the 25021 that stops a publish with "The provided condition id is
+   invalid for the selected primary category id."
+
+   eBay's graded used conditions — VERY_GOOD (4000), GOOD (5000), ACCEPTABLE
+   (6000), LIKE_NEW (2750) — exist only in the media categories: books, movies,
+   music, video games. Everywhere else there is exactly one used condition,
+   USED_EXCELLENT (3000), which eBay shows to buyers as plain "Used".
+
+   Our grade vocabulary is Excellent / Very Good / Good / Fair / Poor, so four
+   of the five map to ids that most categories reject — and the default for an
+   unknown grade was USED_GOOD, the very id in the error. A Pokemon card lot
+   and a bottle of perfume both fail, for the same reason.
+
+   So: ask eBay which conditions the chosen category actually allows, and if
+   the one we want is not on the list, walk to the nearest one that is. The
+   lookup is cached per category and never fatal — if it fails we send what we
+   were going to send anyway, which is no worse than before.                  */
+const EBAY_CONDITION_ID = {
+  NEW: 1000, NEW_WITH_TAGS: 1000, NEW_WITHOUT_TAGS: 1500, NEW_OTHER: 1500,
+  NEW_WITH_DEFECTS: 1750, MANUFACTURER_REFURBISHED: 2000,
+  SELLER_REFURBISHED: 2500, LIKE_NEW: 2750, USED_EXCELLENT: 3000,
+  USED_VERY_GOOD: 4000, USED_GOOD: 5000, USED_ACCEPTABLE: 6000,
+  FOR_PARTS_OR_NOT_WORKING: 7000
+};
+
+const EBAY_CONDITION_ENUM = {
+  1000: 'NEW', 1500: 'NEW_OTHER', 1750: 'NEW_WITH_DEFECTS',
+  2000: 'MANUFACTURER_REFURBISHED', 2500: 'SELLER_REFURBISHED',
+  2750: 'LIKE_NEW', 3000: 'USED_EXCELLENT', 4000: 'USED_VERY_GOOD',
+  5000: 'USED_GOOD', 6000: 'USED_ACCEPTABLE', 7000: 'FOR_PARTS_OR_NOT_WORKING'
+};
+
+/* Nearest acceptable substitute, best first. Every used grade falls back to
+   3000 before anything else, because outside media that is the only "used"
+   there is. */
+const EBAY_CONDITION_FALLBACK = {
+  1000: [1500, 2750, 3000],
+  1500: [1000, 2750, 3000],
+  1750: [1500, 3000],
+  2000: [2500, 3000],
+  2500: [2000, 3000],
+  2750: [3000, 1500, 4000],
+  3000: [4000, 2750, 5000, 6000],
+  4000: [3000, 5000, 6000],
+  5000: [3000, 4000, 6000],
+  6000: [3000, 5000, 7000],
+  7000: [6000, 3000]
+};
+
+const conditionPolicyCache = new Map();
+
+async function ebayConditionPolicy(token, categoryId) {
+  const key = String(categoryId);
+  if (conditionPolicyCache.has(key)) return conditionPolicyCache.get(key);
+
+  let policy = null;
+  try {
+    const j = await ebayFetch(token,
+      `/sell/metadata/v1/marketplace/EBAY_US/get_item_condition_policies` +
+      `?filter=${encodeURIComponent(`categoryIds:{${key}}`)}`);
+    const p = j?.itemConditionPolicies?.[0];
+    if (p) {
+      policy = {
+        required: p.itemConditionRequired !== false,
+        ids: new Set((p.itemConditions || []).map(c => Number(c.conditionId)))
+      };
+    }
+  } catch (e) {
+    /* Not fatal. A metadata outage or a missing scope must not stop a listing
+       that would otherwise have gone out. */
+    console.error('[ebay] condition policy lookup failed for', key, '—', e.message);
+  }
+
+  conditionPolicyCache.set(key, policy);
+  return policy;
+}
+
+/* Returns the enum to send, or null meaning "omit the field entirely". */
+async function resolveEbayCondition(token, categoryId, wanted) {
+  const policy = await ebayConditionPolicy(token, categoryId);
+  if (!policy) return wanted;                       // lookup failed — unchanged
+  if (!policy.ids.size) return policy.required ? wanted : null;
+
+  const wantedId = EBAY_CONDITION_ID[wanted];
+  if (wantedId && policy.ids.has(wantedId)) return wanted;
+
+  for (const id of (EBAY_CONDITION_FALLBACK[wantedId] || [3000, 1000])) {
+    if (policy.ids.has(id)) {
+      console.log(`[ebay] condition ${wanted} (${wantedId}) not valid in category ${categoryId}; using ${EBAY_CONDITION_ENUM[id]} (${id})`);
+      return EBAY_CONDITION_ENUM[id];
+    }
+  }
+
+  const first = [...policy.ids][0];
+  return EBAY_CONDITION_ENUM[first] || wanted;
+}
+
 /* ─────────────────────────── description hygiene ────────────────────────────
    The model returns the description as plain text with \n line breaks, and it
    used to go to eBay exactly as written. eBay parses a description as HTML, so
@@ -1066,12 +1164,15 @@ app.post('/api/ebay/publish', async (req, res) => {
     if (item.styleCode) aspects['Style Code'] = [String(item.styleCode)];
 
     // 1. inventory item
-    const condition = EBAY_CONDITION[item.conditionGrade] || 'USED_GOOD';
+    /* USED_EXCELLENT, not USED_GOOD, is the safe default: 3000 is the only
+       used condition that exists outside the media categories. */
+    const wantedCondition = EBAY_CONDITION[item.conditionGrade] || 'USED_EXCELLENT';
+    const condition = await resolveEbayCondition(token, categoryId, wantedCondition);
 
     /* eBay accepts conditionDescription only on used conditions — send it with
        NEW_WITH_TAGS or NEW_WITHOUT_TAGS and the whole call is rejected. It also
        caps at 1000 characters. */
-    const conditionDescription = condition.startsWith('USED_')
+    const conditionDescription = String(condition || '').startsWith('USED_')
       ? String(item.conditionSummary || '').trim().slice(0, 1000) || undefined
       : undefined;
 
@@ -1079,7 +1180,7 @@ app.post('/api/ebay/publish', async (req, res) => {
       method: 'PUT',
       body: JSON.stringify({
         availability: { shipToLocationAvailability: { quantity: 1 } },
-        condition,
+        condition: condition || undefined,
         conditionDescription,
         product: {
           title: String(listing.title || '').trim().slice(0, 80) || 'Untitled item',
