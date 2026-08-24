@@ -498,12 +498,13 @@ select{appearance:none;cursor:pointer}
 /* ============================================================================
    FLIPARO SUPPORT DESK
    ----------------------------------------------------------------------------
-   ①  TURN ON EMAIL  →  web3forms.com , enter fliparoFAQ@gmail.com, get a free
-       access key, paste it into CONFIG.accessKey. That's the whole setup.
-   ②  LINK TO IT  →  in index.html, inside <aside id="side">, after the Profile
-       line, paste:  <a class="snav" href="/support.html">Support</a>
-   ③  TEACH THE ASSISTANT  →  edit the KB array. Each entry is
-       { id, category, q, keys, answer }. `keys` are the phrases that trigger it.
+   EMAIL IS LIVE. Tickets go to fliparoFAQ@gmail.com via web3forms; the
+   customer's address is set as reply-to, so hitting Reply answers them.
+   Subject lines are prefixed [AUTO-ANSWERED] / [NEEDS HUMAN] / [URGENT].
+
+   To change the answers, edit the KB array below. Each entry is
+   { id, category, q, keys, answer }. `keys` are the phrases that trigger it.
+   Anything the assistant can't match confidently is escalated, never guessed.
    ========================================================================== */
 
 const CONFIG = {
@@ -512,7 +513,7 @@ const CONFIG = {
   supportEmail: "fliparoFAQ@gmail.com",
 
   provider: "web3forms",                          // "web3forms" | "formspree"
-  accessKey: "PASTE_YOUR_WEB3FORMS_ACCESS_KEY",   // ← from web3forms.com
+  accessKey: "9d688e05-6502-44e5-9916-a68f687a71b7",   // web3forms → fliparoFAQ@gmail.com
   formspreeEndpoint: "",                          // e.g. https://formspree.io/f/xxxxxxx
 
   sla: "within 24 hours",
