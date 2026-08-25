@@ -836,16 +836,56 @@ async function ebayToken(req, user) {
   return refreshed.access_token;
 }
 
-// our condition words -> eBay's official condition enums
+/* our condition words -> eBay's official condition enums
+
+   NEW_WITH_TAGS and NEW_WITHOUT_TAGS are NOT members of the Inventory API's
+   ConditionEnum — they are Trading API vocabulary. Sending either one gets the
+   whole inventory item rejected with
+
+     The request has errors. (reason=Could not serialize field [condition])
+
+   which reads like a malformed body rather than an unknown word. The Inventory
+   API spells condition id 1000 as NEW and 1500 as NEW_OTHER, so those are what
+   a brand-new item has to be sent as. */
 const EBAY_CONDITION = {
-  'New with tags': 'NEW_WITH_TAGS',
-  'New without tags': 'NEW_WITHOUT_TAGS',
+  'New with tags': 'NEW',
+  'New without tags': 'NEW_OTHER',
   'Excellent': 'USED_EXCELLENT',
   'Very Good': 'USED_VERY_GOOD',
   'Good': 'USED_GOOD',
   'Fair': 'USED_ACCEPTABLE',
   'Poor': 'USED_ACCEPTABLE'
 };
+
+/* The model is asked for one of the seven grades above, but it is a model, so
+   it sometimes answers "Brand New" or "new with box". Matching those loosely
+   is the difference between a correct listing and a brand-new pair of shoes
+   going out as USED_EXCELLENT, which is the old default for anything
+   unrecognised — wrong in a way the seller only discovers from a buyer. */
+function gradeToCondition(grade) {
+  const g = String(grade || '').trim();
+  if (!g) return 'USED_EXCELLENT';
+  if (EBAY_CONDITION[g]) return EBAY_CONDITION[g];
+
+  const k = g.toLowerCase().replace(/[^a-z]+/g, ' ').trim();
+  const hit = Object.keys(EBAY_CONDITION)
+    .find(name => name.toLowerCase() === k);
+  if (hit) return EBAY_CONDITION[hit];
+
+  if (/\bnew\b/.test(k)) {
+    /* "new without tags", "new without box", "new no tags" → 1500. Anything
+       else that says new — including a bare "new" or "brand new" → 1000. */
+    return /\b(without|no|missing)\b/.test(k) ? 'NEW_OTHER' : 'NEW';
+  }
+  if (/\b(parts|not working|broken)\b/.test(k)) return 'FOR_PARTS_OR_NOT_WORKING';
+  if (/\b(mint|like new)\b/.test(k))            return 'LIKE_NEW';
+  if (/\b(very good)\b/.test(k))                return 'USED_VERY_GOOD';
+  if (/\b(good)\b/.test(k))                     return 'USED_GOOD';
+  if (/\b(fair|poor|acceptable|worn)\b/.test(k)) return 'USED_ACCEPTABLE';
+
+  console.warn(`[ebay] unrecognised condition grade "${g}" — defaulting to USED_EXCELLENT`);
+  return 'USED_EXCELLENT';
+}
 
 /* ──────────────────────── conditions are per-category ───────────────────────
    This is the 25021 that stops a publish with "The provided condition id is
@@ -868,17 +908,50 @@ const EBAY_CONDITION = {
 const EBAY_CONDITION_ID = {
   NEW: 1000, NEW_WITH_TAGS: 1000, NEW_WITHOUT_TAGS: 1500, NEW_OTHER: 1500,
   NEW_WITH_DEFECTS: 1750, MANUFACTURER_REFURBISHED: 2000,
-  SELLER_REFURBISHED: 2500, LIKE_NEW: 2750, USED_EXCELLENT: 3000,
+  CERTIFIED_REFURBISHED: 2000, EXCELLENT_REFURBISHED: 2010,
+  VERY_GOOD_REFURBISHED: 2020, GOOD_REFURBISHED: 2030,
+  SELLER_REFURBISHED: 2500, LIKE_NEW: 2750, PRE_OWNED_EXCELLENT: 2990,
+  USED_EXCELLENT: 3000, PRE_OWNED_FAIR: 3010,
   USED_VERY_GOOD: 4000, USED_GOOD: 5000, USED_ACCEPTABLE: 6000,
   FOR_PARTS_OR_NOT_WORKING: 7000
 };
 
 const EBAY_CONDITION_ENUM = {
   1000: 'NEW', 1500: 'NEW_OTHER', 1750: 'NEW_WITH_DEFECTS',
-  2000: 'MANUFACTURER_REFURBISHED', 2500: 'SELLER_REFURBISHED',
-  2750: 'LIKE_NEW', 3000: 'USED_EXCELLENT', 4000: 'USED_VERY_GOOD',
+  2000: 'MANUFACTURER_REFURBISHED', 2010: 'EXCELLENT_REFURBISHED',
+  2020: 'VERY_GOOD_REFURBISHED', 2030: 'GOOD_REFURBISHED',
+  2500: 'SELLER_REFURBISHED', 2750: 'LIKE_NEW', 2990: 'PRE_OWNED_EXCELLENT',
+  3000: 'USED_EXCELLENT', 3010: 'PRE_OWNED_FAIR', 4000: 'USED_VERY_GOOD',
   5000: 'USED_GOOD', 6000: 'USED_ACCEPTABLE', 7000: 'FOR_PARTS_OR_NOT_WORKING'
 };
+
+/* The only strings the Inventory API will accept in `condition`. Anything else
+   — including a perfectly sensible Trading API name — comes back as "Could not
+   serialize field [condition]" with no hint as to which word was wrong. Every
+   value this file sends is passed through canonicalCondition() first, so an
+   alias can never reach eBay again. */
+const EBAY_VALID_CONDITIONS = new Set([
+  'NEW', 'LIKE_NEW', 'NEW_OTHER', 'NEW_WITH_DEFECTS',
+  'MANUFACTURER_REFURBISHED', 'CERTIFIED_REFURBISHED', 'EXCELLENT_REFURBISHED',
+  'VERY_GOOD_REFURBISHED', 'GOOD_REFURBISHED', 'SELLER_REFURBISHED',
+  'USED_EXCELLENT', 'USED_VERY_GOOD', 'USED_GOOD', 'USED_ACCEPTABLE',
+  'FOR_PARTS_OR_NOT_WORKING', 'PRE_OWNED_EXCELLENT', 'PRE_OWNED_FAIR'
+]);
+
+/* Returns a value eBay will accept, or null meaning "omit the field". */
+function canonicalCondition(value) {
+  if (!value) return null;
+  if (EBAY_VALID_CONDITIONS.has(value)) return value;
+
+  const viaId = EBAY_CONDITION_ENUM[EBAY_CONDITION_ID[value]];
+  if (viaId && EBAY_VALID_CONDITIONS.has(viaId)) {
+    console.log(`[ebay] condition alias ${value} rewritten to ${viaId}`);
+    return viaId;
+  }
+
+  console.error(`[ebay] no valid ConditionEnum for "${value}" — omitting the field`);
+  return null;
+}
 
 /* Nearest acceptable substitute, best first. Every used grade falls back to
    3000 before anything else, because outside media that is the only "used"
@@ -889,11 +962,13 @@ const EBAY_CONDITION_FALLBACK = {
   1750: [1500, 3000],
   2000: [2500, 3000],
   2500: [2000, 3000],
-  2750: [3000, 1500, 4000],
-  3000: [4000, 2750, 5000, 6000],
-  4000: [3000, 5000, 6000],
-  5000: [3000, 4000, 6000],
-  6000: [3000, 5000, 7000],
+  2750: [3000, 2990, 1500, 4000],
+  2990: [3000, 4000, 2750, 5000],
+  3000: [2990, 4000, 2750, 5000, 6000],
+  3010: [6000, 3000, 5000],
+  4000: [3000, 2990, 5000, 6000],
+  5000: [3000, 4000, 6000, 3010],
+  6000: [3010, 3000, 5000, 7000],
   7000: [6000, 3000]
 };
 
@@ -927,22 +1002,26 @@ async function ebayConditionPolicy(token, categoryId) {
 
 /* Returns the enum to send, or null meaning "omit the field entirely". */
 async function resolveEbayCondition(token, categoryId, wanted) {
+  /* Every exit below goes through canonicalCondition(). The category lookup is
+     about picking a condition eBay allows *here*; canonicalisation is about
+     spelling it the way the Inventory API spells it. Both have to happen, and
+     skipping the second on the happy path is what sent NEW_WITH_TAGS to eBay. */
   const policy = await ebayConditionPolicy(token, categoryId);
-  if (!policy) return wanted;                       // lookup failed — unchanged
-  if (!policy.ids.size) return policy.required ? wanted : null;
+  if (!policy) return canonicalCondition(wanted);   // lookup failed — unchanged
+  if (!policy.ids.size) return policy.required ? canonicalCondition(wanted) : null;
 
   const wantedId = EBAY_CONDITION_ID[wanted];
-  if (wantedId && policy.ids.has(wantedId)) return wanted;
+  if (wantedId && policy.ids.has(wantedId)) return canonicalCondition(wanted);
 
   for (const id of (EBAY_CONDITION_FALLBACK[wantedId] || [3000, 1000])) {
     if (policy.ids.has(id)) {
       console.log(`[ebay] condition ${wanted} (${wantedId}) not valid in category ${categoryId}; using ${EBAY_CONDITION_ENUM[id]} (${id})`);
-      return EBAY_CONDITION_ENUM[id];
+      return canonicalCondition(EBAY_CONDITION_ENUM[id]);
     }
   }
 
   const first = [...policy.ids][0];
-  return EBAY_CONDITION_ENUM[first] || wanted;
+  return canonicalCondition(EBAY_CONDITION_ENUM[first]) || canonicalCondition(wanted);
 }
 
 /* ─────────────────────────── description hygiene ────────────────────────────
@@ -1063,6 +1142,151 @@ async function suggestCategory(token, query) {
   }
 }
 
+/* ───────────────────────── required item aspects ────────────────────────────
+   The second thing that stops a publish once the condition is right. Most
+   categories declare aspects the listing must carry — Athletic Shoes wants
+   Brand, US Shoe Size, Department and Type — and eBay rejects the offer with
+
+     25002: A required item specific is missing
+
+   naming one aspect at a time, so fixing them by trial and error costs one
+   round trip each. Ask the taxonomy service what this category requires, then
+   fill what the scan already knows.
+
+   Two rules keep this from inventing listings. A value is only sent for an
+   aspect eBay actually asked for, and where the aspect has a closed list of
+   permitted values, ours has to match one of them or it is dropped — a wrong
+   value is rejected exactly like a missing one, but a wrong value that IS
+   accepted becomes a listing that misdescribes the item.
+
+   Everything here is best-effort. Any failure leaves the aspects exactly as
+   they were, which is no worse than before.                                  */
+const aspectPolicyCache = new Map();
+
+async function ebayCategoryAspects(token, categoryId) {
+  const key = String(categoryId);
+  if (aspectPolicyCache.has(key)) return aspectPolicyCache.get(key);
+
+  let list = [];
+  try {
+    const tree = await ebayCategoryTree(token);
+    if (tree) {
+      const j = await ebayFetch(token,
+        `/commerce/taxonomy/v1/category_tree/${tree}/get_item_aspects_for_category?category_id=${encodeURIComponent(key)}`);
+      list = Array.isArray(j?.aspects) ? j.aspects : [];
+    }
+  } catch (e) {
+    console.error('[ebay] aspect lookup failed for', key, '—', e.message);
+  }
+
+  aspectPolicyCache.set(key, list);
+  return list;
+}
+
+const normAspect = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/* eBay's name for a thing is rarely our name for it. */
+const ASPECT_ALIASES = {
+  brand:        ['brand', 'make', 'manufacturer'],
+  size:         ['size', 'ussize', 'usshoesize', 'shoesize', 'mensshoesize',
+                 'womensshoesize', 'clothingsize', 'sizetype'],
+  colorway:     ['color', 'colour', 'maincolor', 'maincolour', 'primarycolor'],
+  materials:    ['material', 'outermaterial', 'uppermaterial', 'fabrictype', 'fabric'],
+  styleCode:    ['stylecode', 'stylenumber', 'mpn', 'manufacturerpartnumber',
+                 'manufacturersku', 'productline'],
+  productName:  ['model', 'modelname', 'stylename', 'series'],
+  subcategory:  ['type', 'style', 'producttype', 'shoetype'],
+  yearEra:      ['year', 'yearmanufactured', 'releaseyear', 'yearofmanufacture']
+};
+
+/* Aspects where "Does Not Apply" is the correct answer rather than a dodge:
+   eBay documents it for identifiers a second-hand seller genuinely has not
+   got. Filling these is what stops a required-aspect rejection on an item
+   whose box went in the bin years ago. */
+const NOT_APPLICABLE_OK = new Set([
+  'upc', 'ean', 'isbn', 'gtin', 'mpn', 'manufacturerpartnumber'
+]);
+
+function departmentFrom(item, listing) {
+  const hay = `${listing?.title || ''} ${item?.productName || ''} ${item?.subcategory || ''} ${item?.category || ''}`.toLowerCase();
+  if (/\b(unisex)\b/.test(hay))                 return 'Unisex Adult';
+  if (/\b(women|womens|women's|ladies)\b/.test(hay)) return 'Women';
+  if (/\b(men|mens|men's)\b/.test(hay))         return 'Men';
+  if (/\b(girls|girl's)\b/.test(hay))           return 'Girls';
+  if (/\b(boys|boy's)\b/.test(hay))             return 'Boys';
+  if (/\b(kids|youth|toddler|infant|baby)\b/.test(hay)) return 'Unisex Kids';
+  return null;
+}
+
+async function buildAspects(token, categoryId, item, listing, base) {
+  const aspects = { ...base };
+
+  const spec = await ebayCategoryAspects(token, categoryId);
+  if (!spec.length) return { aspects, unfilled: [] };
+
+  /* What we could offer, keyed by every name eBay might use for it. */
+  const pool = new Map();
+  const offer = (sourceKey, value) => {
+    const v = String(value ?? '').trim();
+    if (!v) return;
+    for (const alias of (ASPECT_ALIASES[sourceKey] || [])) {
+      if (!pool.has(alias)) pool.set(alias, v);
+    }
+  };
+  offer('brand', item.brand);
+  offer('size', item.size);
+  offer('colorway', item.colorway);
+  offer('materials', item.materials);
+  offer('styleCode', item.styleCode);
+  offer('productName', item.productName);
+  offer('subcategory', item.subcategory);
+  offer('yearEra', item.yearEra);
+
+  const dept = departmentFrom(item, listing);
+  if (dept) { pool.set('department', dept); pool.set('gender', dept); }
+
+  const unfilled = [];
+
+  for (const a of spec) {
+    const name = a?.localizedAspectName;
+    if (!name) continue;
+
+    const c = a.aspectConstraint || {};
+    const required = c.aspectRequired === true;
+    if (!required && aspects[name]) continue;   // already set by the caller
+    if (!required) continue;                    // only chase what eBay demands
+    if (aspects[name]?.length) continue;
+
+    const key = normAspect(name);
+    let value = pool.get(key) || null;
+
+    /* A closed list means our free text has to BE one of eBay's values. Exact
+       first, then case-insensitive, then a contains-match in either direction
+       so "Nike Air Jordan" can satisfy a "Nike" option. */
+    const allowed = (a.aspectValues || []).map(v => v?.localizedValue).filter(Boolean);
+    if (allowed.length && c.aspectMode === 'SELECTION_ONLY') {
+      const want = String(value || '').toLowerCase();
+      value = (want && (
+        allowed.find(v => v.toLowerCase() === want) ||
+        allowed.find(v => v.toLowerCase().includes(want)) ||
+        allowed.find(v => want.includes(v.toLowerCase()))
+      )) || null;
+    }
+
+    if (!value && NOT_APPLICABLE_OK.has(key)) value = 'Does Not Apply';
+
+    if (!value) { unfilled.push(name); continue; }
+
+    const max = Number(c.aspectMaxLength) || 65;
+    aspects[name] = [String(value).slice(0, max)];
+  }
+
+  if (unfilled.length) {
+    console.warn(`[ebay] category ${categoryId} requires aspects we cannot fill: ${unfilled.join(', ')}`);
+  }
+  return { aspects, unfilled };
+}
+
 async function ebayFetch(token, endpoint, opts = {}) {
   const r = await fetch(`https://${EBAY_API_HOST}${endpoint}`, {
     ...opts,
@@ -1156,25 +1380,108 @@ app.post('/api/ebay/publish', async (req, res) => {
     }
     if (!categoryId) categoryId = FALLBACK_CATEGORY;
 
-    const aspects = {};
-    if (item.brand)     aspects.Brand = [String(item.brand)];
-    if (item.size)      aspects.Size = [String(item.size)];
-    if (item.colorway)  aspects.Color = [String(item.colorway)];
-    if (item.materials) aspects.Material = [String(item.materials)];
-    if (item.styleCode) aspects['Style Code'] = [String(item.styleCode)];
+    /* eBay fetches every photo itself, so a data: URL or an http one is not a
+       worse photo — it is one that cannot arrive. Filter first, then insist on
+       at least one, because an offer with no picture is rejected at publish. */
+    const photos = (Array.isArray(imageUrls) ? imageUrls : [])
+      .map(u => String(u || '').trim())
+      .filter(u => /^https:\/\//i.test(u))
+      .slice(0, 12);
+
+    if (!photos.length) {
+      return res.status(400).json({
+        code: 'EBAY_PHOTOS_REQUIRED',
+        error: 'eBay needs at least one photo, served over https, before it will accept a listing.'
+      });
+    }
+
+    /* "$1,250" and undefined both become the string eBay rejects. Normalise to
+       a plain decimal here so the offer never carries a price it cannot read. */
+    const priceNum = Number(String(listing.suggestedPrice ?? '').replace(/[^0-9.]/g, ''));
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
+      return res.status(400).json({
+        code: 'EBAY_PRICE_REQUIRED',
+        error: 'Set a price before listing.'
+      });
+    }
+    const priceValue = priceNum.toFixed(2);
+
+    /* The seller's own words about condition. eBay wants them in
+       conditionDescription, buyers read them in the description, and a used
+       item published without them is the single most common source of "not as
+       described" cases — so this is required rather than optional. */
+    const conditionNote = String(
+      req.body.conditionNote ?? listing.conditionNote ?? item.conditionSummary ?? ''
+    ).trim();
+
+    if (conditionNote.length < 15) {
+      return res.status(400).json({
+        code: 'EBAY_CONDITION_NOTE_REQUIRED',
+        field: 'conditionNote',
+        error: 'Describe the condition in your own words before listing — what a buyer would '
+             + 'want to know about wear, flaws and what is included.',
+        suggestion: String(item.conditionSummary || '').trim() || undefined
+      });
+    }
+
+    const baseAspects = {};
+    if (item.brand)     baseAspects.Brand = [String(item.brand)];
+    if (item.size)      baseAspects.Size = [String(item.size)];
+    if (item.colorway)  baseAspects.Color = [String(item.colorway)];
+    if (item.materials) baseAspects.Material = [String(item.materials)];
+    if (item.styleCode) baseAspects['Style Code'] = [String(item.styleCode)];
+
+    /* Anything the seller typed into the "details eBay needs" prompt wins over
+       what the scan guessed — they are holding the item and we are not. */
+    for (const [name, value] of Object.entries(req.body.aspects || {})) {
+      const v = String(Array.isArray(value) ? value[0] : value ?? '').trim();
+      if (v) baseAspects[String(name)] = [v.slice(0, 65)];
+    }
+
+    const { aspects, unfilled } = await buildAspects(token, categoryId, item, listing, baseAspects);
+
+    /* Ask the seller rather than letting eBay refuse the offer. Returned before
+       anything is created, so nothing has to be cleaned up afterwards. */
+    if (unfilled.length) {
+      const spec = await ebayCategoryAspects(token, categoryId);
+      const needed = unfilled.map(name => {
+        const a = spec.find(x => x?.localizedAspectName === name) || {};
+        const values = (a.aspectValues || []).map(v => v?.localizedValue).filter(Boolean);
+        return {
+          name,
+          mode: a.aspectConstraint?.aspectMode || 'FREE_TEXT',
+          values: values.slice(0, 60),
+          maxLength: Number(a.aspectConstraint?.aspectMaxLength) || 65
+        };
+      });
+
+      return res.status(400).json({
+        code: 'EBAY_ASPECTS_REQUIRED',
+        error: `eBay requires ${unfilled.join(', ')} for this category.`,
+        needed, categoryId, categoryName
+      });
+    }
 
     // 1. inventory item
     /* USED_EXCELLENT, not USED_GOOD, is the safe default: 3000 is the only
        used condition that exists outside the media categories. */
-    const wantedCondition = EBAY_CONDITION[item.conditionGrade] || 'USED_EXCELLENT';
+    const wantedCondition = gradeToCondition(item.conditionGrade);
     const condition = await resolveEbayCondition(token, categoryId, wantedCondition);
 
-    /* eBay accepts conditionDescription only on used conditions — send it with
-       NEW_WITH_TAGS or NEW_WITHOUT_TAGS and the whole call is rejected. It also
-       caps at 1000 characters. */
-    const conditionDescription = String(condition || '').startsWith('USED_')
-      ? String(item.conditionSummary || '').trim().slice(0, 1000) || undefined
+    /* eBay accepts conditionDescription only on the used conditions — send it
+       with NEW or NEW_OTHER and the whole call is rejected. It caps at 1000. */
+    const usedCondition = /^(USED_|PRE_OWNED_|FOR_PARTS)/.test(String(condition || ''));
+    const conditionDescription = usedCondition
+      ? conditionNote.slice(0, 1000)
       : undefined;
+
+    /* The same words go in the body copy, because conditionDescription is shown
+       in a panel many buyers scroll straight past. Skipped when the description
+       already says it, so nobody reads it twice. */
+    const sellerDescription = String(listing.description || '').trim();
+    const fullDescription = sellerDescription.toLowerCase().includes(conditionNote.toLowerCase())
+      ? sellerDescription
+      : `${sellerDescription}\n\nCondition\n${conditionNote}`.trim();
 
     await ebayFetch(token, `/sell/inventory/v1/inventory_item/${sku}`, {
       method: 'PUT',
@@ -1184,9 +1491,9 @@ app.post('/api/ebay/publish', async (req, res) => {
         conditionDescription,
         product: {
           title: String(listing.title || '').trim().slice(0, 80) || 'Untitled item',
-          description: ebayDescription(listing.description),
+          description: ebayDescription(fullDescription),
           aspects,
-          imageUrls: imageUrls.slice(0, 12)
+          imageUrls: photos
         }
       })
     });
@@ -1198,8 +1505,8 @@ app.post('/api/ebay/publish', async (req, res) => {
         sku, marketplaceId: 'EBAY_US', format: 'FIXED_PRICE',
         availableQuantity: 1,
         categoryId,
-        listingDescription: ebayDescription(listing.description, { limit: 500000 }),
-        pricingSummary: { price: { value: String(listing.suggestedPrice), currency: 'USD' } },
+        listingDescription: ebayDescription(fullDescription, { limit: 500000 }),
+        pricingSummary: { price: { value: priceValue, currency: 'USD' } },
         listingPolicies: {
           fulfillmentPolicyId: process.env.EBAY_FULFILLMENT_POLICY_ID,
           paymentPolicyId: process.env.EBAY_PAYMENT_POLICY_ID,
@@ -1214,7 +1521,7 @@ app.post('/api/ebay/publish', async (req, res) => {
 
     res.json({
       ok: true, sku, offerId: offer.offerId, listingId: published.listingId,
-      categoryId, categoryName, photos: imageUrls.length,
+      categoryId, categoryName, photos: photos.length,
       url: EBAY_SANDBOX
         ? `https://sandbox.ebay.com/itm/${published.listingId}`
         : `https://www.ebay.com/itm/${published.listingId}`
