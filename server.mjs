@@ -553,6 +553,91 @@ Return ONLY raw JSON:
 });
 
 /* ==========================================================================
+   POST /api/read-label — read one field off a photo of a tag
+
+   The scan photographs a whole item, and a size is printed in 6pt type on a
+   tongue label or a sewn-in tag that is usually facing away from the camera.
+   So when eBay demands a size the scan could not read, the app asks for a
+   close-up of the label instead of a typed guess, and this reads it.
+
+   Deliberately narrow: one field, one photo, a value or an honest null. It
+   never invents a plausible size, because a wrong size in a listing is worse
+   than an empty box — it is a return, a refund and a defect on the account.
+
+   Rate-limited like a scan (one device cannot burn the API budget) but it
+   does not consume one of the seller's monthly scans: they already paid for
+   this item, and being asked for a close-up is our shortcoming, not theirs.
+   ========================================================================== */
+app.post('/api/read-label', gate, async (req, res) => {
+  try {
+    const { image, aspect = 'Size', item = {} } = req.body;
+    const b64 = String(image || '').split(',')[1];
+    if (!b64) return res.status(400).json({ error: 'Send one photo of the label.' });
+
+    const wantsShoeSize = /shoe|sneaker|footwear/i.test(
+      `${aspect} ${item.category || ''} ${item.subcategory || ''} ${item.productName || ''}`);
+
+    const { text } = await askClaude({
+      system: 'You read manufacturer labels from photographs for a resale listing tool. '
+            + 'You are precise and you say when you cannot read something. A wrong value '
+            + 'causes a returned order, so an honest null always beats a confident guess.',
+      content: [
+        { type: 'text', text: `Photo of a label on this item:\n${JSON.stringify({
+            productName: item.productName, brand: item.brand,
+            category: item.category, subcategory: item.subcategory
+          }, null, 2)}` },
+        { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+        { type: 'text', text: `Read the value of "${aspect}" off this label.
+
+${wantsShoeSize ? `Shoe labels print several sizings at once — US, UK, EUR, CM/JP — usually in a
+row or a small grid, and often men's and women's on the same tag. This listing
+is for eBay US, so return the US size. If the tag shows a men's and a women's
+US size, return the men's unless the item is clearly women's. Keep half sizes
+exactly as printed (10.5, not 10).` : `Return the value exactly as printed. Do not convert it, expand it or tidy it.`}
+
+Return ONLY raw JSON, no markdown:
+{
+  "value": "the value, exactly as it should appear in the listing, or null if you cannot read it",
+  "system": "the sizing system you read, e.g. \\"US Men's\\", \\"EU\\", \\"UK\\" — null if not applicable",
+  "alternates": { "UK": "…", "EU": "…", "CM": "…" },
+  "confidence": <0-100>,
+  "readable": <true only if you can actually see the value in this photo>,
+  "advice": "if unreadable, one concrete sentence on what to photograph instead — which tag, where it usually is on this kind of item"
+}
+
+Set readable false and value null if the label is blurred, cropped, out of
+frame, or shows something other than ${aspect}. Do not infer the value from
+the item's appearance — only report what is legible on the label.` }
+      ],
+      maxTokens: 700
+    });
+
+    const out = extractJSON(text);
+
+    /* One more gate on our side. A low-confidence read is worse than no read,
+       because it arrives pre-filled and looks checked. */
+    if (!out.readable || !out.value || Number(out.confidence) < 55) {
+      return res.json({
+        readable: false, value: null,
+        confidence: Number(out.confidence) || 0,
+        advice: out.advice || `That photo does not show the ${aspect.toLowerCase()} clearly enough to read. Try a straight-on close-up of the label, in good light, filling the frame.`
+      });
+    }
+
+    res.json({
+      readable: true,
+      value: String(out.value).trim().slice(0, 65),
+      system: out.system || null,
+      alternates: out.alternates || null,
+      confidence: Number(out.confidence) || 0
+    });
+  } catch (e) {
+    console.error('read-label:', e.message);
+    res.status(e.status || 500).json({ error: e.message || 'Could not read that photo.' });
+  }
+});
+
+/* ==========================================================================
    eBay — real OAuth + real publishing
    ========================================================================== */
 const EBAY_SANDBOX = (process.env.EBAY_ENV || 'sandbox') !== 'production';
