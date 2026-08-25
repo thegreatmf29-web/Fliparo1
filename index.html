@@ -469,6 +469,27 @@ select.inp option{background:var(--card);color:var(--fg)}
 .fielderr{display:none;font-size:12.5px;font-weight:600;color:#FFB0A8;margin-top:7px}
 .fielderr.show{display:block;animation:rise .22s var(--ease)}
 .req{color:var(--red);font-weight:800;margin-left:3px}
+/* a field you can either type into or photograph */
+.labelrow{display:flex;gap:8px;align-items:stretch}
+.labelrow .inp{flex:1;min-width:0}
+.tagbtn{flex-shrink:0;display:flex;align-items:center;gap:7px;padding:0 15px;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  font-size:13.5px;font-weight:700;color:var(--acc);cursor:pointer;
+  transition:border-color .18s,background .18s;white-space:nowrap}
+.tagbtn:hover:not(:disabled){border-color:rgba(168,85,247,.5);background:var(--card2)}
+.tagbtn:disabled{opacity:.55;cursor:default}
+.tagbtn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round}
+.labelnote{display:none;font-size:12.5px;line-height:1.5;margin-top:8px;
+  padding:9px 12px;border-radius:11px}
+.labelnote.show{display:block;animation:rise .22s var(--ease)}
+.labelnote.busy{background:var(--card2);color:var(--mut)}
+.labelnote.ok{background:rgba(52,199,123,.11);border:1px solid rgba(52,199,123,.3);color:#8FE3B4}
+.labelnote.warn{background:rgba(255,176,72,.11);border:1px solid rgba(255,176,72,.32);color:#FFCE8A}
+@media (max-width:420px){
+  .labelrow{flex-direction:column}
+  .tagbtn{justify-content:center;height:46px}
+}
 .cnt{font-size:11.5px;color:var(--dim);font-weight:600}
 .cnt.over{color:var(--red)}
 .price-inp{display:flex;align-items:center;background:var(--card);border:1px solid var(--line);
@@ -3005,6 +3026,21 @@ function renderListing(platform) {
       <input class="inp" id="lCond" value="${esc(l.conditionLabel || current.conditionGrade || '')}">
     </div>
     <div class="field">
+      <label>Size${sizeRequiredFor(current) ? '<span class="req">*</span>' : ''}
+        <span class="cnt">${esc(sizeAspectName(current))} on eBay</span></label>
+      <div class="labelrow">
+        <input class="inp" id="lSize" value="${esc(l.size ?? current.size ?? '')}"
+          placeholder="e.g. 10.5" oninput="onSizeInput()">
+        <button type="button" class="tagbtn" id="lSizeBtn"
+          onclick="scanLabel('${esc(sizeAspectName(current))}', 'lSize', 'lSizeNote')">
+          <svg viewBox="0 0 24 24">${GLYPH.camera || '<path d="M3 7a2 2 0 012-2h2l1.4-2h7.2L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="12" r="3.4"/>'}</svg>
+          Read the tag
+        </button>
+      </div>
+      <div class="labelnote" id="lSizeNote"></div>
+      <div class="fielderr" id="lSizeErr"></div>
+    </div>
+    <div class="field">
       <label>Condition details<span class="req">*</span>
         <span class="cnt" id="condNoteCnt">${(l.conditionNote || current.conditionSummary || '').length} characters</span></label>
       <textarea class="inp" id="lCondNote" style="min-height:96px" placeholder="Wear, flaws, what's included — in your own words. Buyers read this before they buy, and it is what protects you if one of them opens a case."
@@ -3171,8 +3207,30 @@ function syncListingFromForm(platform) {
   l.suggestedPrice = Number(document.getElementById('lPrice')?.value) || l.suggestedPrice;
   l.conditionLabel = document.getElementById('lCond')?.value ?? l.conditionLabel;
   l.conditionNote = document.getElementById('lCondNote')?.value ?? l.conditionNote;
+  const sz = document.getElementById('lSize');
+  if (sz) {
+    l.size = sz.value.trim();
+    /* onto the item too — the server reads item.size when it builds eBay's
+       aspects, so a size typed or photographed here reaches the listing */
+    if (current) current.size = l.size || current.size;
+  }
   const f = document.getElementById('lFlaws'); if (f) l.flawsDisclosure = f.value;
   return l;
+}
+
+/* ── sizing ──────────────────────────────────────────────────────────────────
+   Which items eBay will refuse without a size, and what it calls the field.
+   Footwear gets "US Shoe Size" because that is the aspect name in the shoe
+   categories; everything else that has a size just calls it "Size". */
+const SIZED = /shoe|sneaker|trainer|footwear|boot|sandal|cloth|apparel|outerwear|jacket|coat|dress|jean|shirt|hoodie|sweater|pant|short|skirt/i;
+const FOOTWEAR = /shoe|sneaker|trainer|footwear|boot|sandal|cleat|heel/i;
+
+const itemWords = it => `${it?.category || ''} ${it?.subcategory || ''} ${it?.productName || ''}`;
+const sizeRequiredFor = it => SIZED.test(itemWords(it));
+const sizeAspectName  = it => FOOTWEAR.test(itemWords(it)) ? 'US Shoe Size' : 'Size';
+
+function onSizeInput() {
+  if (document.getElementById('lSize')?.value.trim()) markField('lSize', 'lSizeErr', '');
 }
 
 /* ── required-field helpers ──────────────────────────────────────────────────
@@ -3188,6 +3246,127 @@ function markField(inputId, errId, message, focus = true) {
   if (err) { err.textContent = message || ''; err.classList.toggle('show', !!message); }
   if (message && focus && inp) { inp.focus(); inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
   return !message;
+}
+
+/* ── reading a value off a photo of the tag ──────────────────────────────────
+   A size lives in 6pt type on a tongue label or a sewn-in tag, usually facing
+   away from the camera during the scan. Asking for a close-up beats asking the
+   seller to squint at it and type — and beats guessing, which is a return. */
+
+/* Its own input, like the listing one, so it cannot collide with the two
+   pickers already bound on the scan screen. `capture` opens the rear camera
+   straight away on a phone and is ignored on desktop, where it falls back to
+   the file picker. */
+const labelEl = (() => {
+  const el = document.createElement('input');
+  el.type = 'file'; el.accept = 'image/*'; el.hidden = true;
+  el.setAttribute('capture', 'environment');
+  el.addEventListener('change', e => {
+    const f = (e.target.files || [])[0];
+    e.target.value = '';
+    if (f) readLabelImage(f);
+  });
+  document.body.appendChild(el);
+  return el;
+})();
+
+let labelTarget = null;
+
+function scanLabel(aspect, inputId, noteId) {
+  labelTarget = { aspect, inputId, noteId };
+  labelEl.click();
+}
+
+function setNote(id, message, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'labelnote' + (message ? ` show ${state || ''}` : '');
+}
+
+/* A response that is not JSON is nearly always Render's holding page while a
+   free-tier instance wakes up. Saying so beats "Unexpected token '<'". */
+async function readJson(r) {
+  const type = r.headers.get('content-type') || '';
+  if (type.includes('application/json')) return r.json();
+  const body = await r.text();
+  if (/^\s*</.test(body)) {
+    throw new Error(r.status === 502 || r.status === 503 || r.status === 504
+      ? 'The server is waking up — that takes about thirty seconds on the free plan. Try again in a moment.'
+      : 'The server sent a web page instead of data. It is probably restarting.');
+  }
+  try { return JSON.parse(body); } catch { throw new Error('The server sent something this app could not read.'); }
+}
+
+function readLabelImage(file) {
+  const t = labelTarget;
+  if (!t) return;
+
+  const btn = document.getElementById(t.inputId + 'Btn');
+  if (btn) btn.disabled = true;
+  setNote(t.noteId, 'Reading the tag…', 'busy');
+
+  const fr = new FileReader();
+  fr.onload = ev => {
+    const img = new Image();
+    img.onload = async () => {
+      /* 1800 rather than the 1400 used elsewhere. Small print is the whole
+         point of this photo, and downscaling it is how a legible tag becomes
+         an unreadable one. Quality is higher for the same reason. */
+      const MAX = 1800;
+      let { width: w, height: h } = img;
+      if (w > MAX || h > MAX) { const r = Math.min(MAX / w, MAX / h); w = Math.round(w * r); h = Math.round(h * r); }
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+
+      try {
+        const r = await fetch(API + '/api/read-label', {
+          method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({
+            image: c.toDataURL('image/jpeg', .92),
+            aspect: t.aspect,
+            item: current || {}
+          })
+        });
+        const j = await readJson(r);
+        if (!r.ok) throw new Error(j.error || 'Could not read that photo.');
+
+        if (!j.readable) { setNote(t.noteId, j.advice, 'warn'); return; }
+
+        const inp = document.getElementById(t.inputId);
+        if (inp) {
+          inp.value = j.value;
+          inp.classList.remove('bad');
+          inp.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        /* Always shown for confirmation, never silently accepted. The seller
+           is holding the shoe; we are reading a photograph of it. */
+        const alt = j.alternates && Object.entries(j.alternates)
+          .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' · ');
+        setNote(t.noteId,
+          `Read as ${j.value}${j.system ? ` (${j.system})` : ''} — check it matches the tag.`
+          + (alt ? ` Also on the label: ${alt}.` : ''), 'ok');
+        haptic();
+      } catch (e) {
+        setNote(t.noteId, friendlyError(e), 'warn');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    };
+    img.onerror = () => {
+      setNote(t.noteId, 'That file could not be read as an image. Try a JPG or PNG.', 'warn');
+      if (btn) btn.disabled = false;
+    };
+    img.src = ev.target.result;
+  };
+  fr.onerror = () => {
+    setNote(t.noteId, 'That file could not be opened.', 'warn');
+    if (btn) btn.disabled = false;
+  };
+  fr.readAsDataURL(file);
 }
 
 function onCondNoteInput() {
@@ -3212,6 +3391,14 @@ async function publish(platform) {
   const l = syncListingFromForm(platform);
   if (!l.title.trim())     return showErr('listErr', 'Give the listing a title first.');
   if (!l.suggestedPrice)   return showErr('listErr', 'Set a price first.');
+
+  /* Shoes and clothing do not list without a size, and eBay's rejection for a
+     missing one names an aspect rather than a garment. Ask here instead. */
+  if (sizeRequiredFor(current) && !String(l.size || current.size || '').trim()) {
+    return markField('lSize', 'lSizeErr',
+      `This field is required. Type the ${sizeAspectName(current).toLowerCase()}, or tap Read the tag and photograph the label.`);
+  }
+  markField('lSize', 'lSizeErr', '');
 
   /* Condition in the seller's own words is required, and it is required here
      rather than after a failed round trip to eBay. It goes into the listing
@@ -3594,6 +3781,12 @@ function submitEbayDetails() {
      same pair again next week — never asks for the size twice. */
   current.ebayAspects = { ...(current.ebayAspects || {}), ...values };
 
+  /* A size given here is the item's size, not just an eBay field — mirror it
+     so the listing screen shows it and the next listing of the same pair
+     starts from it. */
+  const sizeKey = Object.keys(values).find(k => /size/i.test(k) && !/type/i.test(k));
+  if (sizeKey) current.size = values[sizeKey];
+
   const { listing } = pendingDetails;
   pendingDetails = null;
   closeSheet();
@@ -3622,15 +3815,30 @@ function showSheet(kind, data = {}) {
         const opts = (n.values || []);
         const useSelect = opts.length && n.mode === 'SELECTION_ONLY';
         const saved = esc((current?.ebayAspects || {})[n.name] || '');
+        /* Anything printed on a tag can be photographed instead of typed —
+           sizes above all, but style codes and materials are on the same
+           label and just as fiddly to read off a shoe in your other hand. */
+        const readable = !useSelect && /size|code|mpn|model|material/i.test(n.name);
+        const input = useSelect
+          ? `<select class="inp" id="ed-${i}" onchange="clearDetailField(${i})">
+               <option value="">Choose ${esc(n.name.toLowerCase())}…</option>
+               ${opts.map(v => `<option value="${esc(v)}"${v === saved ? ' selected' : ''}>${esc(v)}</option>`).join('')}
+             </select>`
+          : `<input class="inp" id="ed-${i}" value="${saved}" maxlength="${Number(n.maxLength) || 65}"
+               placeholder="${esc(n.name)}" oninput="clearDetailField(${i})">`;
+
         return `<div class="field">
           <label>${esc(n.name)}<span class="req">*</span></label>
-          ${useSelect
-            ? `<select class="inp" id="ed-${i}" onchange="clearDetailField(${i})">
-                 <option value="">Choose ${esc(n.name.toLowerCase())}…</option>
-                 ${opts.map(v => `<option value="${esc(v)}"${v === saved ? ' selected' : ''}>${esc(v)}</option>`).join('')}
-               </select>`
-            : `<input class="inp" id="ed-${i}" value="${saved}" maxlength="${Number(n.maxLength) || 65}"
-                 placeholder="${esc(n.name)}" oninput="clearDetailField(${i})">`}
+          ${readable
+            ? `<div class="labelrow">${input}
+                 <button type="button" class="tagbtn" id="ed-${i}Btn"
+                   onclick="scanLabel('${esc(n.name)}', 'ed-${i}', 'ed-${i}-note')">
+                   <svg viewBox="0 0 24 24">${GLYPH.camera || '<path d="M3 7a2 2 0 012-2h2l1.4-2h7.2L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="12" r="3.4"/>'}</svg>
+                   Read the tag
+                 </button>
+               </div>
+               <div class="labelnote" id="ed-${i}-note"></div>`
+            : input}
           <div class="fielderr" id="ed-${i}-err"></div>
         </div>`;
       }).join('')}
