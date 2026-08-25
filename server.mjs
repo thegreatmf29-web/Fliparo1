@@ -1292,6 +1292,10 @@ const NOT_APPLICABLE_OK = new Set([
   'upc', 'ean', 'isbn', 'gtin', 'mpn', 'manufacturerpartnumber'
 ]);
 
+/* Categories eBay will not list without a size, and which therefore need the
+   tag photographed. Kept in step with the same list in index.html. */
+const SIZED_CATEGORY = /shoe|sneaker|trainer|footwear|boot|sandal|cleat|heel|cloth|apparel|outerwear|jacket|coat|dress|jean|shirt|hoodie|sweater|pant|short|skirt/i;
+
 function departmentFrom(item, listing) {
   const hay = `${listing?.title || ''} ${item?.productName || ''} ${item?.subcategory || ''} ${item?.category || ''}`.toLowerCase();
   if (/\b(unisex)\b/.test(hay))                 return 'Unisex Adult';
@@ -1477,6 +1481,21 @@ app.post('/api/ebay/publish', async (req, res) => {
       return res.status(400).json({
         code: 'EBAY_PHOTOS_REQUIRED',
         error: 'eBay needs at least one photo, served over https, before it will accept a listing.'
+      });
+    }
+
+    /* Sized goods need the tag in frame as well as the item. The app asks for
+       it by name and attaches it; this is the floor underneath that, so a
+       client that skipped the step still cannot publish a pair of shoes on a
+       single glamour shot. It counts photos rather than inspecting them —
+       proving a photo shows a size tag is not something this can do — but a
+       second photo is the thing that was missing in every dispute. */
+    if (SIZED_CATEGORY.test(`${item.category || ''} ${item.subcategory || ''} ${item.productName || ''}`)
+        && photos.length < 2) {
+      return res.status(400).json({
+        code: 'EBAY_PROOF_REQUIRED',
+        error: 'Add a photo of the size tag as well as the item. Two photos minimum for anything '
+             + 'with a size — it is what settles a "wrong size sent" case in your favour.'
       });
     }
 
