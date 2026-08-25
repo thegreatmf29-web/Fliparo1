@@ -568,7 +568,48 @@ Return ONLY raw JSON:
    does not consume one of the seller's monthly scans: they already paid for
    this item, and being asked for a close-up is our shortcoming, not theirs.
    ========================================================================== */
-app.post('/api/read-label', gate, async (req, res) => {
+/* Its own limiter, not `gate`.
+
+   `gate` exempts owners by reading req.quotaCtx, which only quotaGate sets —
+   and this route deliberately does not run quotaGate, because reading a tag
+   must not consume one of the seller's monthly scans. Wiring `gate` here
+   therefore rate-limited the people who are supposed to be unlimited, and
+   spent scan-bucket allowance on a call that is not a scan.
+
+   So: a separate bucket, a looser limit because several attempts at one
+   awkward tag is normal, and an explicit owner check rather than a flag some
+   other middleware was supposed to have left behind. */
+const LABEL_PER_HOUR = Number(process.env.RATE_LIMIT_LABEL_READS || 60);
+const labelBuckets = new Map();
+
+async function labelGate(req, res, next) {
+  try {
+    if (accounts.isOwner(await accounts.currentUser(req))) return next();
+  } catch { /* fall through to the limit — never fail open on an error */ }
+
+  const id = req.get('x-device-id') || req.ip || 'anon';
+  const now = Date.now();
+  const b = labelBuckets.get(id) || { count: 0, reset: now + WINDOW_MS };
+  if (now > b.reset) { b.count = 0; b.reset = now + WINDOW_MS; }
+
+  if (b.count >= LABEL_PER_HOUR) {
+    const mins = Math.ceil((b.reset - now) / 60000);
+    return res.status(429).json({
+      error: `That is ${LABEL_PER_HOUR} tag reads in an hour. Try again in ${mins} min, or type the value in.`,
+      code: 'RATE_LIMIT', resetInMinutes: mins
+    });
+  }
+
+  b.count++; labelBuckets.set(id, b);
+  next();
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of labelBuckets) if (now > v.reset) labelBuckets.delete(k);
+}, 10 * 60 * 1000).unref?.();
+
+app.post('/api/read-label', labelGate, async (req, res) => {
   try {
     const { image, aspect = 'Size', item = {} } = req.body;
     const b64 = String(image || '').split(',')[1];
