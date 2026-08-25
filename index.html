@@ -486,6 +486,8 @@ select.inp option{background:var(--card);color:var(--fg)}
 .labelnote.busy{background:var(--card2);color:var(--mut)}
 .labelnote.ok{background:rgba(52,199,123,.11);border:1px solid rgba(52,199,123,.3);color:#8FE3B4}
 .labelnote.warn{background:rgba(255,176,72,.11);border:1px solid rgba(255,176,72,.32);color:#FFCE8A}
+.linkbtn{display:inline;background:none;border:none;padding:0;font-size:inherit;font-weight:800;
+  color:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 @media (max-width:420px){
   .labelrow{flex-direction:column}
   .tagbtn{justify-content:center;height:46px}
@@ -3037,7 +3039,13 @@ function renderListing(platform) {
           Read the tag
         </button>
       </div>
-      <div class="labelnote" id="lSizeNote"></div>
+      ${(() => {
+        if (!sizeRequiredFor(current)) return '<div class="labelnote" id="lSizeNote"></div>';
+        const has = current.proofPhotos?.[sizeAspectName(current)];
+        return has
+          ? '<div class="labelnote show ok" id="lSizeNote">Size tag photo attached to this listing.</div>'
+          : '<div class="labelnote show warn" id="lSizeNote">Required before listing: a photo of the size tag. Tap Read the tag.</div>';
+      })()}
       <div class="fielderr" id="lSizeErr"></div>
     </div>
     <div class="field">
@@ -3248,6 +3256,47 @@ function markField(inputId, errId, message, focus = true) {
   return !message;
 }
 
+/* ── preparing a photo the way eBay wants it ─────────────────────────────────
+   Two numbers matter and the app was under both.
+
+   eBay turns its zoom on at 1600px on the longest side. Below that a buyer
+   cannot magnify a photo at all, and the listing renders small — which is
+   exactly what a 1400px cap produced. And eBay's search grid is square, so a
+   portrait phone photo gets letterboxed into it and shrinks again.
+
+   So: 1600 x 1600, item scaled to fit, white behind it. White because eBay's
+   own guidance is a plain light background and because the grid tile is white
+   — padding in any other colour reads as a border round the picture.        */
+const EBAY_IMG = 1600;
+
+function toEbayImage(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = c.height = EBAY_IMG;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, EBAY_IMG, EBAY_IMG);
+
+      /* Never enlarge past the source. Upscaling a small photo to hit 1600
+         satisfies the zoom threshold and gives the buyer a blurry zoom, which
+         is worse than no zoom. */
+      const scale = Math.min(EBAY_IMG / img.width, EBAY_IMG / img.height, 1);
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(img, Math.round((EBAY_IMG - w) / 2), Math.round((EBAY_IMG - h) / 2), w, h);
+
+      /* .9 lands a 1600² photo around 300-500KB — far under the 6MB the
+         server accepts, and past the point where more quality is visible. */
+      resolve(c.toDataURL('image/jpeg', .9));
+    };
+    img.onerror = () => resolve(dataUrl);   // upload what we have rather than nothing
+    img.src = dataUrl;
+  });
+}
+
 /* ── reading a value off a photo of the tag ──────────────────────────────────
    A size lives in 6pt type on a tongue label or a sewn-in tag, usually facing
    away from the camera during the scan. Asking for a close-up beats asking the
@@ -3271,10 +3320,46 @@ const labelEl = (() => {
 })();
 
 let labelTarget = null;
+let lastLabelShot = null;
 
 function scanLabel(aspect, inputId, noteId) {
   labelTarget = { aspect, inputId, noteId };
   labelEl.click();
+}
+
+/* ── proof photos ────────────────────────────────────────────────────────────
+   The tag photo is not just how we read the size — it is the evidence. It
+   goes into the listing so a buyer can see the size for themselves, and so
+   that "you sent the wrong size" is answered by a photograph rather than by
+   your word against theirs. Attached automatically; there is no separate
+   upload step to forget. */
+function attachProof(aspect, dataUrl) {
+  if (!current || !dataUrl) return;
+  current.proofPhotos = current.proofPhotos || {};
+  current.proofPhotos[aspect] = dataUrl;
+
+  if (!Array.isArray(current.photos)) current.photos = [];
+  if (!current.photos.includes(dataUrl)) {
+    if (current.photos.length >= LISTING_MAX_PHOTOS) return false;
+    current.photos.push(dataUrl);
+    invalidateHostedPhotos();
+    renderListingPhotos();
+  }
+  return true;
+}
+
+/* Offered when the model cannot read a tag that the seller can. A worn or
+   faded label is still evidence, and refusing it would strand exactly the
+   items that most need the photo. */
+function attachAnyway() {
+  if (!lastLabelShot) return;
+  const { aspect, dataUrl, noteId } = lastLabelShot;
+  const added = attachProof(aspect, dataUrl);
+  setNote(noteId, added === false
+    ? `This listing already has ${LISTING_MAX_PHOTOS} photos — remove one, then attach the tag.`
+    : `Tag photo attached. Type the ${aspect.toLowerCase()} yourself and check it against the tag.`,
+    added === false ? 'warn' : 'ok');
+  document.getElementById(lastLabelShot.inputId)?.focus();
 }
 
 function setNote(id, message, state) {
@@ -3322,19 +3407,27 @@ function readLabelImage(file) {
       ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
       ctx.drawImage(img, 0, 0, w, h);
 
+      const shot = c.toDataURL('image/jpeg', .92);
+      lastLabelShot = { ...t, dataUrl: shot };
+
       try {
         const r = await fetch(API + '/api/read-label', {
           method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
-          body: JSON.stringify({
-            image: c.toDataURL('image/jpeg', .92),
-            aspect: t.aspect,
-            item: current || {}
-          })
+          body: JSON.stringify({ image: shot, aspect: t.aspect, item: current || {} })
         });
         const j = await readJson(r);
         if (!r.ok) throw new Error(j.error || 'Could not read that photo.');
 
-        if (!j.readable) { setNote(t.noteId, j.advice, 'warn'); return; }
+        if (!j.readable) {
+          setNote(t.noteId, j.advice, 'warn');
+          const note = document.getElementById(t.noteId);
+          if (note) note.insertAdjacentHTML('beforeend',
+            ' <button type="button" class="linkbtn" onclick="attachAnyway()">Attach this photo anyway</button>');
+          return;
+        }
+
+        /* Read succeeded — the tag is legible, so it is worth showing buyers. */
+        attachProof(t.aspect, shot);
 
         const inp = document.getElementById(t.inputId);
         if (inp) {
@@ -3347,7 +3440,8 @@ function readLabelImage(file) {
         const alt = j.alternates && Object.entries(j.alternates)
           .filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(' · ');
         setNote(t.noteId,
-          `Read as ${j.value}${j.system ? ` (${j.system})` : ''} — check it matches the tag.`
+          `Read as ${j.value}${j.system ? ` (${j.system})` : ''} — check it matches the tag. `
+          + `The photo is now attached to your listing as proof.`
           + (alt ? ` Also on the label: ${alt}.` : ''), 'ok');
         haptic();
       } catch (e) {
@@ -3392,6 +3486,11 @@ async function publish(platform) {
   if (!l.title.trim())     return showErr('listErr', 'Give the listing a title first.');
   if (!l.suggestedPrice)   return showErr('listErr', 'Set a price first.');
 
+  /* No listing goes out without a photograph of the thing being sold. */
+  if (!listingPhotos().length) {
+    return showErr('listErr', 'Add at least one photo of the item before listing. eBay will not accept a listing without one, and neither will a buyer.');
+  }
+
   /* Shoes and clothing do not list without a size, and eBay's rejection for a
      missing one names an aspect rather than a garment. Ask here instead. */
   if (sizeRequiredFor(current) && !String(l.size || current.size || '').trim()) {
@@ -3399,6 +3498,18 @@ async function publish(platform) {
       `This field is required. Type the ${sizeAspectName(current).toLowerCase()}, or tap Read the tag and photograph the label.`);
   }
   markField('lSize', 'lSizeErr', '');
+
+  /* And the size has to be shown, not just stated. A photo of the tag is what
+     turns "wrong size sent" from your word against theirs into a closed case,
+     so it is required rather than encouraged. */
+  if (sizeRequiredFor(current) && !current.proofPhotos?.[sizeAspectName(current)]) {
+    setNote('lSizeNote',
+      'A photo of the size tag is required before listing. Tap Read the tag — it fills the size in and attaches the photo as proof.', 'warn');
+    document.getElementById('lSizeBtn')?.focus();
+    document.getElementById('lSizeNote')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    haptic();
+    return;
+  }
 
   /* Condition in the seller's own words is required, and it is required here
      rather than after a failed round trip to eBay. It goes into the listing
@@ -3535,11 +3646,17 @@ async function publishEbay(l) {
         .filter(p => typeof p === 'string' && p.startsWith('data:'));
       if (shots.length) {
         try {
+          /* Resized to eBay's shape on the way out rather than on the way in,
+             so the scan keeps the original framing and only the copies eBay
+             fetches are squared up. */
+          pubStep(1, 'doing', `Sizing ${shots.length} photo${shots.length > 1 ? 's' : ''} for eBay…`);
+          const sized = await Promise.all(shots.slice(0, 12).map(toEbayImage));
+
           const ir = await fetch(API + '/api/images', {
             method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
-            body: JSON.stringify({ images: shots.slice(0, 12) })
+            body: JSON.stringify({ images: sized })
           });
-          const ij = await ir.json();
+          const ij = await readJson(ir);
           if (!ir.ok) throw new Error(ij.error || 'Upload failed');
           imageUrls = ij.urls || [];
           current.hostedImageUrls = imageUrls;   // reuse if this publish is retried
@@ -3584,7 +3701,8 @@ async function publishEbay(l) {
           'This field is required. Describe the condition a buyer will receive.'), 80);
         return;
       }
-      if (j.code === 'EBAY_PRICE_REQUIRED' || j.code === 'EBAY_PHOTOS_REQUIRED') {
+      if (j.code === 'EBAY_PRICE_REQUIRED' || j.code === 'EBAY_PHOTOS_REQUIRED'
+          || j.code === 'EBAY_PROOF_REQUIRED') {
         go('listing', { replace: true });
         setTimeout(() => showErr('listErr', j.error), 80);
         return;
