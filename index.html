@@ -457,6 +457,18 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
      padding:15px 16px;font-size:15.5px;transition:border-color .18s}
 .inp:focus{border-color:rgba(168,85,247,.55);box-shadow:0 0 0 3px rgba(168,85,247,.13)}
 textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
+select.inp{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mut) 50%),
+  linear-gradient(135deg,var(--mut) 50%,transparent 50%);
+  background-position:calc(100% - 19px) 22px,calc(100% - 14px) 22px;
+  background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:40px;cursor:pointer}
+select.inp option{background:var(--card);color:var(--fg)}
+/* required-field state — the label turns, the border turns, and the reason
+   sits directly under the field it belongs to rather than at the top of a form */
+.inp.bad,.price-inp.bad{border-color:rgba(255,90,78,.6)}
+.inp.bad:focus{box-shadow:0 0 0 3px rgba(255,90,78,.15)}
+.fielderr{display:none;font-size:12.5px;font-weight:600;color:#FFB0A8;margin-top:7px}
+.fielderr.show{display:block;animation:rise .22s var(--ease)}
+.req{color:var(--red);font-weight:800;margin-left:3px}
 .cnt{font-size:11.5px;color:var(--dim);font-weight:600}
 .cnt.over{color:var(--red)}
 .price-inp{display:flex;align-items:center;background:var(--card);border:1px solid var(--line);
@@ -2993,6 +3005,13 @@ function renderListing(platform) {
       <input class="inp" id="lCond" value="${esc(l.conditionLabel || current.conditionGrade || '')}">
     </div>
     <div class="field">
+      <label>Condition details<span class="req">*</span>
+        <span class="cnt" id="condNoteCnt">${(l.conditionNote || current.conditionSummary || '').length} characters</span></label>
+      <textarea class="inp" id="lCondNote" style="min-height:96px" placeholder="Wear, flaws, what's included — in your own words. Buyers read this before they buy, and it is what protects you if one of them opens a case."
+        oninput="onCondNoteInput()">${esc(l.conditionNote || current.conditionSummary || '')}</textarea>
+      <div class="fielderr" id="lCondNoteErr"></div>
+    </div>
+    <div class="field">
       <label>Photos <span class="cnt" id="lPhotoCnt">${listingPhotos().length}/12 · first one is the gallery image</span></label>
       <div class="lphotos" id="lPhotoGrid"></div>
     </div>
@@ -3151,8 +3170,31 @@ function syncListingFromForm(platform) {
   l.description = document.getElementById('lDesc')?.value ?? l.description;
   l.suggestedPrice = Number(document.getElementById('lPrice')?.value) || l.suggestedPrice;
   l.conditionLabel = document.getElementById('lCond')?.value ?? l.conditionLabel;
+  l.conditionNote = document.getElementById('lCondNote')?.value ?? l.conditionNote;
   const f = document.getElementById('lFlaws'); if (f) l.flawsDisclosure = f.value;
   return l;
+}
+
+/* ── required-field helpers ──────────────────────────────────────────────────
+   One place that says a field is wrong and one that says it is fine again, so
+   the message clears the moment the seller starts fixing it rather than
+   sitting there red while they type. */
+const MIN_CONDITION_NOTE = 15;
+
+function markField(inputId, errId, message, focus = true) {
+  const inp = document.getElementById(inputId);
+  const err = document.getElementById(errId);
+  if (inp) inp.classList.toggle('bad', !!message);
+  if (err) { err.textContent = message || ''; err.classList.toggle('show', !!message); }
+  if (message && focus && inp) { inp.focus(); inp.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  return !message;
+}
+
+function onCondNoteInput() {
+  const v = document.getElementById('lCondNote')?.value || '';
+  const c = document.getElementById('condNoteCnt');
+  if (c) c.textContent = `${v.length} characters`;
+  if (v.trim().length >= MIN_CONDITION_NOTE) markField('lCondNote', 'lCondNoteErr', '');
 }
 function copyListing(platform) {
   const l = syncListingFromForm(platform);
@@ -3170,6 +3212,21 @@ async function publish(platform) {
   const l = syncListingFromForm(platform);
   if (!l.title.trim())     return showErr('listErr', 'Give the listing a title first.');
   if (!l.suggestedPrice)   return showErr('listErr', 'Set a price first.');
+
+  /* Condition in the seller's own words is required, and it is required here
+     rather than after a failed round trip to eBay. It goes into the listing
+     description and into eBay's conditionDescription field, and an item sold
+     without it is the one most likely to come back as "not as described". */
+  const note = String(l.conditionNote || '').trim();
+  if (note.length < MIN_CONDITION_NOTE) {
+    return markField('lCondNote', 'lCondNoteErr',
+      note ? `This field needs a bit more — ${MIN_CONDITION_NOTE} characters minimum.`
+           : 'This field is required. Describe the condition a buyer will receive.');
+  }
+  markField('lCondNote', 'lCondNoteErr', '');
+  /* Onto the item as well as the listing, so it survives into inventory and is
+     still there if this pair gets relisted later. */
+  current.conditionNote = note;
   /* Ask the server before deciding. `me` can be stale — the sign-in that just
      happened is exactly the event that changes it — and acting on a stale copy
      is what turns one failed sign-in into an endless loop back to this screen. */
@@ -3313,13 +3370,38 @@ async function publishEbay(l) {
     pubStep(2, 'doing');
     const r = await fetch(API + '/api/ebay/publish', {
       method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
-      body: JSON.stringify({ item: current, listing: l, imageUrls })
+      body: JSON.stringify({
+        item: current, listing: l, imageUrls,
+        /* Details the seller typed into the "eBay needs a bit more" sheet on a
+           previous attempt. Kept on the item so a retry does not ask twice. */
+        aspects: current.ebayAspects || {},
+        conditionNote: l.conditionNote || current.conditionNote || ''
+      })
     });
     const j = await r.json();
     if (!r.ok) {
       pubStep(2, 'fail', j.error);
       document.getElementById('pubCancel').style.display = '';
       if (j.code === 'upgrade') showPaywall('listing');
+
+      /* eBay demands item specifics this category cannot do without and the
+         scan could not read off the photos — shoe size being the usual one.
+         Ask for them rather than leaving the seller with eBay's wording. */
+      if (j.code === 'EBAY_ASPECTS_REQUIRED') {
+        showSheet('ebayDetails', { needed: j.needed || [], listing: l, imageUrls });
+        return;
+      }
+      if (j.code === 'EBAY_CONDITION_NOTE_REQUIRED') {
+        go('listing', { replace: true });
+        setTimeout(() => markField('lCondNote', 'lCondNoteErr',
+          'This field is required. Describe the condition a buyer will receive.'), 80);
+        return;
+      }
+      if (j.code === 'EBAY_PRICE_REQUIRED' || j.code === 'EBAY_PHOTOS_REQUIRED') {
+        go('listing', { replace: true });
+        setTimeout(() => showErr('listErr', j.error), 80);
+        return;
+      }
       /* The connection died between the status check and the publish — an
          eighteen-month re-consent, or a revoke on eBay's side. Send them
          straight back into the link flow rather than leaving a dead end. */
@@ -3479,6 +3561,45 @@ const openSheet = () => {
 })();
 const closeSheet = () => { document.getElementById('sheet').classList.remove('show'); document.getElementById('sheetBg').classList.remove('show'); };
 
+/* Set while the "eBay needs a few more details" sheet is open, so the retry
+   knows which listing it belongs to. */
+let pendingDetails = null;
+
+function clearDetailField(i) {
+  const el = document.getElementById('ed-' + i);
+  if (el && String(el.value || '').trim()) markField('ed-' + i, `ed-${i}-err`, '');
+}
+
+function submitEbayDetails() {
+  if (!pendingDetails) return closeSheet();
+
+  const values = {};
+  const missing = [];
+
+  pendingDetails.needed.forEach((n, i) => {
+    const v = String(document.getElementById('ed-' + i)?.value || '').trim();
+    if (!v) { missing.push(i); markField('ed-' + i, `ed-${i}-err`, 'This field is required.', false); }
+    else { markField('ed-' + i, `ed-${i}-err`, '', false); values[n.name] = v; }
+  });
+
+  if (missing.length) {
+    const first = document.getElementById('ed-' + missing[0]);
+    first?.focus();
+    first?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    haptic();
+    return;
+  }
+
+  /* Kept on the item, not just on this attempt, so a retry — or listing the
+     same pair again next week — never asks for the size twice. */
+  current.ebayAspects = { ...(current.ebayAspects || {}), ...values };
+
+  const { listing } = pendingDetails;
+  pendingDetails = null;
+  closeSheet();
+  publishEbay(listing);
+}
+
 function showSheet(kind, data = {}) {
   const b = document.getElementById('sheetBody');
   if (kind === 'ebaySetup') {
@@ -3488,6 +3609,33 @@ function showSheet(kind, data = {}) {
         1. Sign up at developer.ebay.com<br>2. Create a keyset and an RuName<br>
         3. Paste both into <b style="color:var(--fg)">.env</b><br>4. Restart the server</div>
       <button class="btn btn-ghost" onclick="closeSheet()">Got it</button>`;
+  } else if (kind === 'ebayDetails') {
+    /* eBay refuses the offer without these, and no amount of looking at the
+       photos will tell us a shoe size. So the item stays exactly where it is
+       and the seller fills in the gaps — free text where eBay allows anything,
+       a picker where it only allows its own list. */
+    pendingDetails = { listing: data.listing, imageUrls: data.imageUrls || [], needed: data.needed || [] };
+
+    b.innerHTML = `<h3>eBay needs a few more details</h3>
+      <p>This category will not accept a listing without ${pendingDetails.needed.length === 1 ? 'this' : 'these'}. Everything else is ready to go.</p>
+      ${pendingDetails.needed.map((n, i) => {
+        const opts = (n.values || []);
+        const useSelect = opts.length && n.mode === 'SELECTION_ONLY';
+        const saved = esc((current?.ebayAspects || {})[n.name] || '');
+        return `<div class="field">
+          <label>${esc(n.name)}<span class="req">*</span></label>
+          ${useSelect
+            ? `<select class="inp" id="ed-${i}" onchange="clearDetailField(${i})">
+                 <option value="">Choose ${esc(n.name.toLowerCase())}…</option>
+                 ${opts.map(v => `<option value="${esc(v)}"${v === saved ? ' selected' : ''}>${esc(v)}</option>`).join('')}
+               </select>`
+            : `<input class="inp" id="ed-${i}" value="${saved}" maxlength="${Number(n.maxLength) || 65}"
+                 placeholder="${esc(n.name)}" oninput="clearDetailField(${i})">`}
+          <div class="fielderr" id="ed-${i}-err"></div>
+        </div>`;
+      }).join('')}
+      <button class="btn" style="width:100%" onclick="submitEbayDetails()">Continue publishing</button>
+      <button class="btn btn-ghost" style="width:100%;margin-top:9px" onclick="closeSheet()">Not now</button>`;
   } else if (kind === 'privacy') {
     b.innerHTML = `<h3>Privacy</h3>
       <p>Your photos go to this app's server, are forwarded once to Anthropic for analysis, and are not stored by either. Your scan history lives on this device. Your email is used only to hold your plan and nothing else.</p>
