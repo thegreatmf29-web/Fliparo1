@@ -3012,6 +3012,11 @@ function renderNetBox(d) { current = current || d; paintNet(); }
 function renderListing(platform) {
   const l = listings[platform];
   const limit = 80;
+
+  /* Fire-and-forget on first render: asks eBay whether this category has a
+     size and redraws once it answers. Guarded against re-entry, so the redraw
+     it triggers does not start another. */
+  loadEbayRequirements(platform);
   const canAuto = platform === 'ebay' ? me.autoList : false;
 
   document.getElementById('listBody').innerHTML = `
@@ -3027,27 +3032,30 @@ function renderListing(platform) {
       <label>Condition</label>
       <input class="inp" id="lCond" value="${esc(l.conditionLabel || current.conditionGrade || '')}">
     </div>
-    <div class="field">
-      <label>Size${sizeRequiredFor(current) ? '<span class="req">*</span>' : ''}
-        <span class="cnt">${esc(sizeAspectName(current))} on eBay</span></label>
+    ${sizeUnknown(current)
+      ? `<div class="field"><div class="labelnote show busy">Checking what eBay needs for this category…</div></div>`
+      : !sizeRequiredFor(current) ? ''
+      : (() => {
+        const name = sizeAspectName(current);
+        const has = current.proofPhotos?.[name];
+        return `<div class="field">
+      <label>${esc(name)}<span class="req">*</span>
+        <span class="cnt">eBay requires this here</span></label>
       <div class="labelrow">
         <input class="inp" id="lSize" value="${esc(l.size ?? current.size ?? '')}"
-          placeholder="e.g. 10.5" oninput="onSizeInput()">
+          placeholder="${esc(name)}" oninput="onSizeInput()">
         <button type="button" class="tagbtn" id="lSizeBtn"
-          onclick="scanLabel('${esc(sizeAspectName(current))}', 'lSize', 'lSizeNote')">
-          <svg viewBox="0 0 24 24">${GLYPH.camera || '<path d="M3 7a2 2 0 012-2h2l1.4-2h7.2L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><circle cx="12" cy="12" r="3.4"/>'}</svg>
+          onclick="scanLabel('${esc(name)}', 'lSize', 'lSizeNote')">
+          <svg viewBox="0 0 24 24">${GLYPH.camera}</svg>
           Read the tag
         </button>
       </div>
-      ${(() => {
-        if (!sizeRequiredFor(current)) return '<div class="labelnote" id="lSizeNote"></div>';
-        const has = current.proofPhotos?.[sizeAspectName(current)];
-        return has
-          ? '<div class="labelnote show ok" id="lSizeNote">Size tag photo attached to this listing.</div>'
-          : '<div class="labelnote show warn" id="lSizeNote">Required before listing: a photo of the size tag. Tap Read the tag.</div>';
-      })()}
+      <div class="labelnote show ${has ? 'ok' : 'warn'}" id="lSizeNote">${has
+        ? 'Tag photo attached to this listing.'
+        : `Required before listing: a photo showing the ${esc(name.toLowerCase())}. Tap Read the tag.`}</div>
       <div class="fielderr" id="lSizeErr"></div>
-    </div>
+    </div>`;
+      })()}
     <div class="field">
       <label>Condition details<span class="req">*</span>
         <span class="cnt" id="condNoteCnt">${(l.conditionNote || current.conditionSummary || '').length} characters</span></label>
@@ -3227,15 +3235,45 @@ function syncListingFromForm(platform) {
 }
 
 /* ── sizing ──────────────────────────────────────────────────────────────────
-   Which items eBay will refuse without a size, and what it calls the field.
-   Footwear gets "US Shoe Size" because that is the aspect name in the shoe
-   categories; everything else that has a size just calls it "Size". */
-const SIZED = /shoe|sneaker|trainer|footwear|boot|sandal|cloth|apparel|outerwear|jacket|coat|dress|jean|shirt|hoodie|sweater|pant|short|skirt/i;
-const FOOTWEAR = /shoe|sneaker|trainer|footwear|boot|sandal|cleat|heel/i;
+   Whether an item has a size is eBay's call, not ours. This was a keyword
+   list, which claimed a hat has a size the way a shoe does and that a vinyl
+   record has none — wrong in both directions, and wrong in a way that put a
+   required field in front of somebody selling a mug.
 
-const itemWords = it => `${it?.category || ''} ${it?.subcategory || ''} ${it?.productName || ''}`;
-const sizeRequiredFor = it => SIZED.test(itemWords(it));
-const sizeAspectName  = it => FOOTWEAR.test(itemWords(it)) ? 'US Shoe Size' : 'Size';
+   So the screen asks eBay what this category requires, and uses its answer
+   and its wording: "US Shoe Size" for trainers, "Hat Size" for a fitted cap,
+   nothing at all for a paperback.
+
+   undefined = not asked yet.  null = this category has no size. */
+const sizeAspectName  = it => it?.sizeAspect || null;
+const sizeRequiredFor = it => !!it?.sizeAspect;
+const sizeUnknown     = it => it?.sizeAspect === undefined;
+
+async function loadEbayRequirements(platform) {
+  if (!current || current._reqPending || current.sizeAspect !== undefined) return;
+  current._reqPending = true;
+  try {
+    const r = await fetch(API + '/api/ebay/requirements', {
+      method: 'POST', headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ item: current, listing: listings[platform] || {} })
+    });
+    const j = await readJson(r);
+    current.sizeAspect = (r.ok && j.sizeAspect) || null;
+    if (j.categoryId) current.ebayCategoryId = j.categoryId;
+  } catch {
+    /* eBay unreachable, or not linked yet. Treat the category as unsized here
+       rather than demanding a field we cannot justify — the publish path asks
+       for whatever is missing once it can actually find out. */
+    current.sizeAspect = null;
+  } finally {
+    current._reqPending = false;
+    /* Sync before redrawing so anything already typed survives the re-render. */
+    if (document.getElementById('lTitle') && listings[platform]) {
+      syncListingFromForm(platform);
+      renderListing(platform);
+    }
+  }
+}
 
 function onSizeInput() {
   if (document.getElementById('lSize')?.value.trim()) markField('lSize', 'lSizeErr', '');
@@ -3491,24 +3529,27 @@ async function publish(platform) {
     return showErr('listErr', 'Add at least one photo of the item before listing. eBay will not accept a listing without one, and neither will a buyer.');
   }
 
-  /* Shoes and clothing do not list without a size, and eBay's rejection for a
-     missing one names an aspect rather than a garment. Ask here instead. */
-  if (sizeRequiredFor(current) && !String(l.size || current.size || '').trim()) {
-    return markField('lSize', 'lSizeErr',
-      `This field is required. Type the ${sizeAspectName(current).toLowerCase()}, or tap Read the tag and photograph the label.`);
-  }
-  markField('lSize', 'lSizeErr', '');
+  /* Only where eBay says this category has a size. A mug, a paperback and a
+     vinyl record skip both of these entirely. */
+  if (sizeRequiredFor(current)) {
+    const name = sizeAspectName(current);
 
-  /* And the size has to be shown, not just stated. A photo of the tag is what
-     turns "wrong size sent" from your word against theirs into a closed case,
-     so it is required rather than encouraged. */
-  if (sizeRequiredFor(current) && !current.proofPhotos?.[sizeAspectName(current)]) {
-    setNote('lSizeNote',
-      'A photo of the size tag is required before listing. Tap Read the tag — it fills the size in and attaches the photo as proof.', 'warn');
-    document.getElementById('lSizeBtn')?.focus();
-    document.getElementById('lSizeNote')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    haptic();
-    return;
+    if (!String(l.size || current.size || '').trim()) {
+      return markField('lSize', 'lSizeErr',
+        `This field is required. Type the ${name.toLowerCase()}, or tap Read the tag and photograph the label.`);
+    }
+    markField('lSize', 'lSizeErr', '');
+
+    /* And it has to be shown, not just stated. The photo is what turns "wrong
+       size sent" from your word against theirs into a closed case. */
+    if (!current.proofPhotos?.[name]) {
+      setNote('lSizeNote',
+        `A photo showing the ${name.toLowerCase()} is required before listing. Tap Read the tag — it fills the field in and attaches the photo as proof.`, 'warn');
+      document.getElementById('lSizeBtn')?.focus();
+      document.getElementById('lSizeNote')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      haptic();
+      return;
+    }
   }
 
   /* Condition in the seller's own words is required, and it is required here
