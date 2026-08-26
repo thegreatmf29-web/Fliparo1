@@ -1333,9 +1333,24 @@ const NOT_APPLICABLE_OK = new Set([
   'upc', 'ean', 'isbn', 'gtin', 'mpn', 'manufacturerpartnumber'
 ]);
 
-/* Categories eBay will not list without a size, and which therefore need the
-   tag photographed. Kept in step with the same list in index.html. */
-const SIZED_CATEGORY = /shoe|sneaker|trainer|footwear|boot|sandal|cleat|heel|cloth|apparel|outerwear|jacket|coat|dress|jean|shirt|hoodie|sweater|pant|short|skirt/i;
+/* Which items have a size is not ours to decide. A first attempt guessed from
+   the product name with a keyword list, which said a hat has a size and a
+   vinyl record does not, and was wrong in both directions often enough to
+   matter — eBay wants a Ring Size and a Hat Size in some categories and
+   nothing at all in others.
+
+   eBay publishes the answer per category, so ask it. Returns eBay's own name
+   for the field — "US Shoe Size", "Size", "Hat Size" — or null when this
+   category genuinely has no size.
+
+   "Size Type" (Regular / Plus / Petite) is excluded: it is a required aspect
+   in clothing categories and it is not a size, so treating it as one would
+   put a tag-photo demand on items that need no such thing. */
+const sizeAspectOf = (spec = []) => spec.find(a =>
+  a?.aspectConstraint?.aspectRequired === true &&
+  /size/i.test(a.localizedAspectName || '') &&
+  !/type/i.test(a.localizedAspectName || '')
+)?.localizedAspectName || null;
 
 function departmentFrom(item, listing) {
   const hay = `${listing?.title || ''} ${item?.productName || ''} ${item?.subcategory || ''} ${item?.category || ''}`.toLowerCase();
@@ -1462,6 +1477,52 @@ async function ebayFetch(token, endpoint, opts = {}) {
   return json;
 }
 
+/* ==========================================================================
+   POST /api/ebay/requirements
+
+   What this category actually demands, asked before the seller starts filling
+   the form rather than discovered when the publish is refused.
+
+   It exists because the listing screen has to decide whether to show a Size
+   field at all, and that is not a decision a keyword list can make. A pair of
+   trainers needs a US Shoe Size, a fitted cap needs a Hat Size, and a mug,
+   a paperback and a vinyl record need nothing — eBay knows which is which and
+   we do not.
+
+   Both lookups are cached per category, so this is one round trip the first
+   time an item of a given kind is listed and free after that.
+   ========================================================================== */
+app.post('/api/ebay/requirements', async (req, res) => {
+  try {
+    const user = await ebayUser(req);
+    const token = await ebayToken(req, user);
+    const { item = {}, listing = {} } = req.body;
+
+    let categoryId = req.body.categoryId ? String(req.body.categoryId) : null;
+    let categoryName = '';
+    if (!categoryId) {
+      const guess = await suggestCategory(token, `${listing.title || ''} ${item.brand || ''}`.trim());
+      if (guess) { categoryId = guess.id; categoryName = guess.name; }
+    }
+    if (!categoryId) categoryId = FALLBACK_CATEGORY;
+
+    const spec = await ebayCategoryAspects(token, categoryId);
+
+    res.json({
+      categoryId, categoryName,
+      sizeAspect: sizeAspectOf(spec),
+      required: spec
+        .filter(a => a?.aspectConstraint?.aspectRequired === true && a.localizedAspectName)
+        .map(a => a.localizedAspectName)
+    });
+  } catch (e) {
+    /* Never fatal. If eBay is unreachable or unlinked the listing screen just
+       shows no size field, and the publish path asks for whatever is missing
+       at the point it actually knows. */
+    res.status(e.status || 500).json({ error: e.message, code: e.code, sizeAspect: null, required: [] });
+  }
+});
+
 /* Full publish chain: inventory item -> offer -> publish */
 app.post('/api/ebay/publish', async (req, res) => {
   try {
@@ -1525,20 +1586,6 @@ app.post('/api/ebay/publish', async (req, res) => {
       });
     }
 
-    /* Sized goods need the tag in frame as well as the item. The app asks for
-       it by name and attaches it; this is the floor underneath that, so a
-       client that skipped the step still cannot publish a pair of shoes on a
-       single glamour shot. It counts photos rather than inspecting them —
-       proving a photo shows a size tag is not something this can do — but a
-       second photo is the thing that was missing in every dispute. */
-    if (SIZED_CATEGORY.test(`${item.category || ''} ${item.subcategory || ''} ${item.productName || ''}`)
-        && photos.length < 2) {
-      return res.status(400).json({
-        code: 'EBAY_PROOF_REQUIRED',
-        error: 'Add a photo of the size tag as well as the item. Two photos minimum for anything '
-             + 'with a size — it is what settles a "wrong size sent" case in your favour.'
-      });
-    }
 
     /* "$1,250" and undefined both become the string eBay rejects. Normalise to
        a plain decimal here so the offer never carries a price it cannot read. */
@@ -1584,6 +1631,28 @@ app.post('/api/ebay/publish', async (req, res) => {
     }
 
     const { aspects, unfilled } = await buildAspects(token, categoryId, item, listing, baseAspects);
+
+    /* Only now, with eBay's own answer in hand, is it knowable whether this
+       item has a size — and therefore whether a photo of the tag is owed. A
+       mug and a vinyl record reach this line and pass straight through it.
+
+       Where there IS a size, the tag has to be in frame as well as the item.
+       The app asks for that photo by name and attaches it; this is the floor
+       underneath, so a client that skipped the step cannot publish a pair of
+       shoes on one glamour shot. It counts photos rather than inspecting them
+       — proving a photo shows a size tag is not something this can do — but
+       the missing second photo is what every wrong-size dispute has in
+       common. */
+    const sizeAspect = sizeAspectOf(await ebayCategoryAspects(token, categoryId));
+    if (sizeAspect && photos.length < 2) {
+      return res.status(400).json({
+        code: 'EBAY_PROOF_REQUIRED',
+        sizeAspect,
+        error: `Add a photo showing the ${sizeAspect.toLowerCase()} as well as the item. `
+             + 'Two photos minimum for anything with a size — it is what settles a '
+             + '"wrong size sent" case in your favour.'
+      });
+    }
 
     /* Ask the seller rather than letting eBay refuse the offer. Returned before
        anything is created, so nothing has to be cleaned up afterwards. */
