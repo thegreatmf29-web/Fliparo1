@@ -680,6 +680,10 @@ select.inp option{background:var(--card);color:var(--fg)}
 .netbox .ninp::-webkit-outer-spin-button,
 .netbox .ninp::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .netbox .ninp:focus{outline:0;border-bottom-color:var(--acc);color:var(--acc-hi)}
+/* An empty buy price is the difference between a valuation and a decision, so
+   the field asks to be filled rather than sitting there looking optional. */
+.netbox .ninp.want{border-bottom:1px dashed var(--acc);color:var(--acc-hi)}
+.netbox .ninp.want::placeholder{color:var(--acc-hi);opacity:.75}
 .netbox .ninp::placeholder{color:var(--dim);font-weight:500}
 
 /* eBay call to action */
@@ -721,6 +725,26 @@ select.inp option{background:var(--card);color:var(--fg)}
 .item-row .right{text-align:right;flex-shrink:0}
 .item-row .right .p{font-size:15.5px;font-weight:800;letter-spacing:-.03em}
 .item-row .right .s{font-size:11.5px;margin-top:2px;font-weight:650}
+
+/* Per-row remove. Deliberately quiet until touched — a delete control that
+   competes with the row itself gets pressed by accident, and this is the one
+   action in the list that cannot be undone. */
+.item-row .del{flex-shrink:0;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;
+  background:none;border:1px solid transparent;cursor:pointer;transition:all .16s var(--ease)}
+.item-row .del svg{width:16px;height:16px;stroke:var(--dim);fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round;transition:stroke .16s var(--ease)}
+.item-row .del:hover,.item-row .del:focus-visible{background:rgba(255,90,78,.1);border-color:rgba(255,90,78,.3);outline:0}
+.item-row .del:hover svg,.item-row .del:focus-visible svg{stroke:var(--red)}
+
+/* Running totals for whatever the inventory filter is showing. Its whole job
+   is to visibly drop when something is removed, so a deletion reads as money
+   leaving the books rather than a row vanishing. */
+.invtot{display:flex;gap:10px;margin-bottom:14px}
+.invtot .it{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:12px 14px;min-width:0}
+.invtot .itv{font-size:22px;font-weight:800;letter-spacing:-.045em;font-variant-numeric:tabular-nums}
+.invtot .itl{font-size:11px;color:var(--dim);margin-top:2px;font-weight:650;
+  letter-spacing:.05em;text-transform:uppercase}
 
 .list-link{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 0;
   border-bottom:1px solid var(--line);font-size:15px}
@@ -1008,6 +1032,110 @@ select.inp option{background:var(--card);color:var(--fg)}
 }
 @media (min-width:1300px){ .screen>*{max-width:1080px} }
 
+/* ═══════════════════ landing: how it works, pricing, trust, FAQ ═══════════
+   A signed-out visitor and a working reseller want opposite things from this
+   screen. Everything below renders only in the landing state and disappears
+   the moment somebody has an account or a scan of their own, so the app does
+   not turn into a brochure for the people already using it. */
+
+.how{display:grid;gap:11px;counter-reset:how}
+.how .step{position:relative;display:flex;gap:14px;align-items:flex-start;
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 17px}
+.how .step .n{flex-shrink:0;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
+  background:var(--acc-dim);border:1px solid rgba(168,85,247,.3);
+  font-size:13.5px;font-weight:800;color:var(--acc-hi);font-variant-numeric:tabular-nums}
+.how .step .t{font-size:15px;font-weight:750;letter-spacing:-.025em}
+.how .step .d{font-size:13.5px;color:var(--mut);line-height:1.55;margin-top:3px}
+
+/* The example report gets a real preview rather than a bare link. A visitor
+   deciding whether this is worth an email address is asking "what do I
+   actually get", and a sentence cannot answer that. */
+.exdemo{background:linear-gradient(160deg,rgba(168,85,247,.10),var(--card) 60%);
+  border:1px solid rgba(168,85,247,.3);border-radius:var(--r-lg);padding:20px;
+  box-shadow:0 16px 44px -24px var(--glow-1)}
+.exdemo .eh{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+.exdemo .en{font-size:16.5px;font-weight:800;letter-spacing:-.03em}
+.exdemo .es{font-size:12px;color:var(--dim);font-weight:600}
+.exline{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--line)}
+.exline:last-of-type{border-bottom:0}
+.exline span{color:var(--mut)}
+.exline b{font-weight:700;font-variant-numeric:tabular-nums}
+.exline.tot{border-top:1px solid var(--line2);border-bottom:0;margin-top:4px;padding-top:11px}
+.exline.tot span{color:var(--fg);font-weight:700}
+.exline.tot b{font-size:22px;font-weight:800;letter-spacing:-.04em;color:var(--grn)}
+
+/* Illustrative sample rows. The label is not decoration — these are made-up
+   figures on a made-up item, and the moment they read as a record of real
+   sales the report is lying. Hence the banner above them, the muted styling
+   below real data, and the hard rule that this block is bound to
+   EXAMPLE_SCAN and can never be reached from a live scan. */
+.comps{margin-top:14px}
+.comps .cwarn{display:flex;gap:8px;align-items:flex-start;font-size:11.5px;line-height:1.5;
+  color:var(--amb);background:rgba(255,197,61,.09);border:1px solid rgba(255,197,61,.26);
+  border-radius:10px;padding:8px 10px;margin-bottom:10px;font-weight:600}
+.comps .crow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  font-size:13px;padding:6px 0;border-bottom:1px solid var(--line);color:var(--mut)}
+.comps .crow:last-child{border-bottom:0}
+.comps .crow b{color:var(--fg);font-weight:700;font-variant-numeric:tabular-nums}
+
+/* Score breakdown. The weights are the real ones out of overallOf() — if that
+   formula changes this table has to change with it, which is why both read
+   from SCORE_FACTORS rather than repeating the numbers. */
+.sbreak{display:grid;gap:9px;margin-top:4px}
+.sbrow{display:grid;grid-template-columns:1fr 46px;gap:12px;align-items:center}
+.sbrow .sbn{font-size:13.5px;font-weight:650}
+/* The qualifier reads as a caption under the factor, not as a run-on after it
+   — inline, it wraps under the score column and the row stops scanning. */
+.sbrow .sbn i{display:block;font-style:normal;color:var(--dim);font-weight:600;
+  font-size:11.5px;line-height:1.45;margin-top:2px}
+.sbrow .sbv{text-align:right;font-size:14px;font-weight:750;font-variant-numeric:tabular-nums}
+.sbbar{grid-column:1/-1;height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;margin-top:-4px}
+.sbbar i{display:block;height:100%;border-radius:3px;background:var(--tc,var(--acc));transition:width .5s var(--ease)}
+.bands{display:grid;gap:7px;margin-top:16px;padding-top:15px;border-top:1px solid var(--line)}
+.band{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--mut)}
+.band .bd{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.band b{color:var(--fg);font-weight:700;font-variant-numeric:tabular-nums;min-width:56px}
+.band.on{color:var(--fg)}
+
+.trust{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px}
+.trust .tt{font-size:16.5px;font-weight:800;letter-spacing:-.03em;margin-bottom:6px}
+.trust p{font-size:13.5px;color:var(--mut);line-height:1.6;margin-bottom:14px}
+.trust .tr{display:flex;gap:11px;align-items:flex-start;font-size:13.5px;line-height:1.5;padding:7px 0}
+.trust .tr svg{width:17px;height:17px;flex-shrink:0;margin-top:2px;stroke:var(--grn);fill:none;
+  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+
+.faq details{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:0 17px;margin-bottom:9px;overflow:hidden}
+.faq summary{list-style:none;cursor:pointer;padding:15px 0;font-size:14.5px;font-weight:700;
+  letter-spacing:-.02em;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:'';width:9px;height:9px;flex-shrink:0;border-right:2px solid var(--dim);
+  border-bottom:2px solid var(--dim);transform:rotate(45deg) translateY(-2px);transition:transform .22s var(--ease)}
+.faq details[open] summary::after{transform:rotate(-135deg) translateY(-2px)}
+.faq details[open] summary{color:var(--acc-hi)}
+.faq .fa{font-size:13.5px;color:var(--mut);line-height:1.65;padding:0 0 16px;margin-top:-3px}
+.faq .fa b{color:var(--fg);font-weight:650}
+
+/* Compact three-across pricing for the landing screen. Deliberately not the
+   full .plan-card — the job here is "here is what it costs", not checkout. */
+.pricerow{display:grid;grid-template-columns:1fr;gap:11px}
+.pcard{position:relative;background:var(--card);border:1px solid var(--line);
+  border-radius:var(--r);padding:17px}
+.pcard.pop{border-color:rgba(168,85,247,.45);background:linear-gradient(160deg,rgba(168,85,247,.1),var(--card) 58%)}
+.pcard .pn{font-size:13px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;color:var(--mut)}
+.pcard.pop .pn{color:var(--acc-hi)}
+.pcard .pv{display:flex;align-items:baseline;gap:5px;margin:7px 0 10px}
+.pcard .pv b{font-size:33px;font-weight:800;letter-spacing:-.055em;line-height:1}
+.pcard .pv span{font-size:13px;color:var(--dim);font-weight:600}
+.pcard .pf{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--mut);line-height:1.5;padding:4px 0}
+.pcard .pf svg{width:15px;height:15px;flex-shrink:0;margin-top:2px;stroke:var(--acc-hi);fill:none;
+  stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
+@media (min-width:720px){
+  .pricerow{grid-template-columns:repeat(3,1fr);align-items:start}
+  .how{grid-template-columns:repeat(2,1fr)}
+}
+
 /* honour reduced-motion rather than animating regardless */
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms !important;transition-duration:.001ms !important}
@@ -1058,9 +1186,9 @@ select.inp option{background:var(--card);color:var(--fg)}
 
   <div class="hero-scan rise">
     <div class="hero-copy">
-      <div class="eyebrow">Take a photo</div>
-      <div class="hl">What's it<br>actually worth?</div>
-      <div class="hs">Photograph anything. You get a real valuation from sold comps, an honest condition grade, and a finished eBay listing.</div>
+      <div class="eyebrow">Before you buy it</div>
+      <div class="hl">Find the deals<br>worth flipping.</div>
+      <div class="hs">Take a picture of anything at a thrift store, garage sale or marketplace. Fliparo tells you what it's worth, what you'd actually clear after fees, and writes your eBay listing.</div>
       <button class="btn btn-acc" onclick="startScan()">
         <svg viewBox="0 0 24 24"><path d="M3 9V6a3 3 0 013-3h3M15 3h3a3 3 0 013 3v3M21 15v3a3 3 0 01-3 3h-3M9 21H6a3 3 0 01-3-3v-3"/><circle cx="12" cy="12" r="3.2"/></svg>
         Take a photo
@@ -1073,11 +1201,15 @@ select.inp option{background:var(--card);color:var(--fg)}
     <div class="hero-art" id="heroArt" aria-hidden="true"></div>
   </div>
 
+  <!-- How it works + the worked example. Landing state only; renderHome
+       empties this the moment there is an account or a scan. -->
+  <div id="homeHow"></div>
+
   <div id="homeStatsWrap" style="display:none">
     <h2 class="sec">Your numbers</h2>
     <div class="stats">
       <div class="stat"><div class="sv" id="stScans">0</div><div class="sl">Items</div></div>
-      <div class="stat"><div class="sv" id="stValue">$0</div><div class="sl">Est. value</div></div>
+      <div class="stat"><div class="sv" id="stValue">$0</div><div class="sl">Still to sell</div></div>
       <div class="stat"><div class="sv" id="stListed">0</div><div class="sl">Listed</div></div>
       <div class="stat"><div class="sv" id="stBest">—</div><div class="sl">Best find</div></div>
     </div>
@@ -1090,6 +1222,9 @@ select.inp option{background:var(--card);color:var(--fg)}
     <h2 class="sec">Recent scans</h2>
     <div id="homeRecent"></div>
   </div>
+
+  <!-- Score explainer, pricing, what the numbers rest on, FAQ. Same gate. -->
+  <div id="homePitch"></div>
 
   <div id="homeUpsell"></div>
 </section>
@@ -1181,6 +1316,10 @@ select.inp option{background:var(--card);color:var(--fg)}
         <div style="font-size:14.5px;color:var(--mut);line-height:1.5;margin-top:14px" id="vSub"></div>
       </div>
 
+      <!-- What the score is made of. Collapsed by default: the number is the
+           headline, the arithmetic is for anyone who wants to argue with it. -->
+      <div id="scoreBreak"></div>
+
       <div class="card glow lit" style="margin-top:12px;text-align:center" id="priceCard">
         <div class="eyebrow">Estimated value</div>
         <div class="num" id="priceVal" style="font-size:48px;margin:6px 0 4px">$0</div>
@@ -1190,6 +1329,7 @@ select.inp option{background:var(--card);color:var(--fg)}
              color:var(--mut);font-weight:600"></div>
         <div class="strat-row" id="stratRow"></div>
         <div class="netbox" id="netBox"></div>
+        <div id="compsWrap"></div>
       </div>
     </div>
 
@@ -1347,6 +1487,7 @@ select.inp option{background:var(--card);color:var(--fg)}
     <button onclick="filterInv('draft',this)">Drafts</button>
     <button onclick="filterInv('sold',this)">Sold</button>
   </div>
+  <div id="invTotals"></div>
   <div id="invList"></div>
 </section>
 
@@ -1543,6 +1684,28 @@ const EXAMPLE_SCAN = {
   defects: [{ type: 'Creasing', severity: 'minor', where: 'toe box', priceImpact: -18 }],
   verdict: 'Strong margin — bred 4s move fast at the right price.',
   keywords: ['jordan 4', 'bred', 'retro', '308497-060'],
+  buyPrice: 150,
+
+  /* ── illustrative only ───────────────────────────────────────────────────
+     Sample rows showing the SHAPE of a comps table, on a sample item, in a
+     report the screen already labels as an example. They are not a record of
+     real sales and must never be presented as one.
+
+     The property is called sampleComps rather than comps for that reason: a
+     live scan has no such field, renderComps is the only thing that reads it,
+     and it draws the "illustrative" banner unconditionally. If real sold data
+     is ever wired up it lands under a different key with a different renderer,
+     so there is no path by which these numbers can end up standing in for it.
+
+     Dates are relative to today so the block never looks stale, which is also
+     why they are generated rather than written down. */
+  sampleComps: [-5, -6, -8, -9].map(d => {
+    const t = new Date(Date.now() + d * 864e5);
+    return {
+      price: [332, 305, 341, 288][[-5, -6, -8, -9].indexOf(d)],
+      when: t.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+    };
+  }),
   /* Real reference photo of the example pair. A demo report that shows a
      line drawing does not demonstrate that the model reads real photos.
      Inlined so the example still works with the server down. */
@@ -1553,6 +1716,11 @@ let viewingExample = false;
 
 function showExample() {
   viewingExample = true;
+  /* So the profit on the example report matches the one advertised on the way
+     in. Only ever seeds a value that has never been set — somebody who has
+     already told us what their shipping costs keeps their own figure, and the
+     field is editable either way. */
+  if (store('shipEst') == null) store('shipEst', DEMO_SHIP);
   current = JSON.parse(JSON.stringify(EXAMPLE_SCAN));
   navStack = ['home'];
   renderResults(current);
@@ -1619,9 +1787,25 @@ function countUp(el, to, dur = 1200, prefix = '') {
     if (p < 1) requestAnimationFrame(step);
   })(t0);
 }
+/* ── the Resell Score, in the open ────────────────────────────────────────
+   The five inputs and their weights, in one place. The score, the breakdown
+   on the results screen and the explainer on the landing screen all read from
+   this, so the published formula cannot drift away from the one that actually
+   runs — which is the entire point of publishing it.
+
+   Weights sum to 1. Condition is in the mix at 14% because a Grail item in
+   pieces is not a grail; it is not the whole story because a pristine item
+   nobody wants is still worth nothing. */
+const SCORE_FACTORS = [
+  { key:'resellValue',   name:'Profit potential', w:.32, why:'What it sells for against what it costs to get.' },
+  { key:'demand',        name:'Demand',           w:.26, why:'How many people are actively looking for it.' },
+  { key:'trendingLevel', name:'Trending',         w:.14, why:'Whether interest is climbing or cooling.' },
+  { key:'rarityLevel',   name:'Rarity',           w:.14, why:'How flooded the market already is.' },
+  { key:'conditionScore',name:'Condition',        w:.14, why:'What the photos show about wear and flaws.' }
+];
+
 function overallOf(d) {
-  return Math.round(clamp(d.resellValue)*.32 + clamp(d.demand)*.26 +
-    clamp(d.trendingLevel)*.14 + clamp(d.rarityLevel)*.14 + clamp(d.conditionScore)*.14);
+  return Math.round(SCORE_FACTORS.reduce((sum, f) => sum + clamp(d[f.key]) * f.w, 0));
 }
 function priceFor(d, s = strategy) {
   if (s === 'quick')   return Math.round(d.quickSalePrice || d.priceLow || d.averagePrice || 0);
@@ -2592,6 +2776,8 @@ function renderResults(d) {
       <div class="sp">${money(pr)}</div><div class="sn">${nm}</div><div class="sd">${sd}</div></button>`).join('');
 
   renderNetBox(d);
+  renderScoreBreak(d);
+  renderComps(d);
   renderExampleState();
 
   /* condition — a gauge, matching the four metric gauges */
@@ -2642,6 +2828,75 @@ function renderResults(d) {
    listing — are replaced. Saving a demo item into someone's real inventory, or
    opening a listing editor for shoes they do not own, would both be small
    betrayals of a screen whose whole job is to be a preview. */
+/* ── score breakdown ──────────────────────────────────────────────────────
+   A number out of 100 with nothing behind it is a horoscope. This shows the
+   five inputs, what each one scored, and what it is worth in the total — read
+   from SCORE_FACTORS, the same constant overallOf() uses, so the explanation
+   is the implementation rather than a description of it. */
+function renderScoreBreak(d) {
+  const el = document.getElementById('scoreBreak');
+  if (!el) return;
+  const overall = overallOf(d);
+  const tier = tierOf(overall);
+
+  const rows = SCORE_FACTORS.map(f => {
+    const v = clamp(d[f.key]);
+    return `<div class="sbrow">
+        <div class="sbn">${f.name}<i>${Math.round(f.w * 100)}% of score</i></div>
+        <div class="sbv" style="color:${tierOf(v).c}">${v}</div>
+        <div class="sbbar"><i style="width:${v}%;--tc:${tierOf(v).c}"></i></div>
+      </div>`;
+  }).join('');
+
+  /* Bands come from TIERS so the legend can never disagree with the chip
+     shown above it. Highest first, and the one in play is lit. */
+  const bands = TIERS.map((t, i) => {
+    const hi = i === 0 ? 100 : TIERS[i - 1].min - 1;
+    return `<div class="band ${t === tier ? 'on' : ''}">
+        <span class="bd" style="background:${t.c}"></span>
+        <b>${t.min}–${hi}</b><span style="color:${t === tier ? t.c : ''};font-weight:${t === tier ? 700 : 600}">${t.name}</span>
+        <span style="color:var(--dim);font-size:12px">${esc(t.line)}</span>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `<details class="card" style="margin-top:12px;padding:0 20px">
+      <summary style="list-style:none;cursor:pointer;padding:17px 0;font-size:14px;font-weight:700;
+        letter-spacing:-.02em;display:flex;align-items:center;justify-content:space-between;gap:12px">
+        How this ${overall} was worked out
+        <span style="font-size:12px;color:var(--dim);font-weight:600">5 factors</span>
+      </summary>
+      <div style="padding-bottom:18px">
+        <div class="sbreak">${rows}</div>
+        <div class="bands">${bands}</div>
+      </div>
+    </details>`;
+}
+
+/* ── comps ────────────────────────────────────────────────────────────────
+   Only ever renders EXAMPLE_SCAN.sampleComps, and only while the example is
+   on screen. A live scan has no sampleComps field and this draws nothing —
+   Fliparo does not query real sold listings, so there is no honest way to
+   show a comps table on a real report yet, and a dishonest one is worse than
+   an absent one. The banner says which of the two this is. */
+function renderComps(d) {
+  const el = document.getElementById('compsWrap');
+  if (!el) return;
+  const rows = (viewingExample && Array.isArray(d.sampleComps)) ? d.sampleComps : [];
+  if (!rows.length) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `<div class="comps">
+      <div class="cwarn">
+        <svg viewBox="0 0 24 24" style="width:14px;height:14px;flex-shrink:0;margin-top:1px;
+          stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round">
+          <circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+        <span>Sample figures, shown to illustrate the format. These are not real
+              sales — Fliparo estimates value from market knowledge rather than a
+              live feed of sold listings.</span>
+      </div>
+      ${rows.map(c => `<div class="crow"><b>${money(c.price)}</b><span>Sold ${esc(c.when)}</span></div>`).join('')}
+    </div>`;
+}
+
 function renderExampleState() {
   const bar = document.getElementById('exampleBar');
   const acts = document.getElementById('resActions');
@@ -2984,15 +3239,16 @@ function paintNet() {
   if (!el) return;
 
   const money2 = n => money(Math.round(n));
-  const num = (id, val) => `<input class="ninp" id="${id}" type="number" inputmode="decimal"
-    min="0" step="1" value="${val || ''}" placeholder="0"
+  const num = (id, val, want) => `<input class="ninp${want ? ' want' : ''}" id="${id}" type="number" inputmode="decimal"
+    min="0" step="1" value="${val || ''}" placeholder="${want ? '—' : '0'}"
+    aria-label="${id === 'netShip' ? 'Shipping estimate' : 'What you paid for this item'}"
     oninput="onNetInput('${id === 'netShip' ? 'ship' : 'buy'}',this.value)">`;
 
   el.innerHTML = `
     <div class="nrow"><span>Sells for</span><b>${money2(sale)}</b></div>
     <div class="nrow"><span>eBay fees</span><b>−${money2(fees)}</b></div>
     <div class="nrow"><span>Shipping</span><b class="nedit">−$${num('netShip', ship)}</b></div>
-    <div class="nrow"><span>You paid</span><b class="nedit">−$${num('netBuy', buy)}</b></div>
+    <div class="nrow"><span>${buy > 0 ? 'You paid' : 'What did you pay?'}</span><b class="nedit">−$${num('netBuy', buy, buy <= 0)}</b></div>
     <div class="nsep"></div>
     <div class="nkeep">
       <span class="nkl">${buy > 0 ? 'You make' : 'You keep'}</span>
@@ -4007,6 +4263,29 @@ function showSheet(kind, data = {}) {
     b.innerHTML = `<h3>Privacy</h3>
       <p>Your photos go to this app's server, are forwarded once to Anthropic for analysis, and are not stored by either. Your scan history lives on this device. Your email is used only to hold your plan and nothing else.</p>
       <button class="btn btn-ghost" onclick="closeSheet()">Close</button>`;
+  } else if (kind === 'deleteItem') {
+    const live = Object.entries(data.urls || {});
+    const worth = Number(data.price) || 0;
+    b.innerHTML = `<h3>Remove ${esc(data.name || 'this item')}?</h3>
+      ${live.length ? `
+        <div class="card tight" style="margin-bottom:14px;border-color:rgba(255,197,61,.32);
+             background:rgba(255,197,61,.07)">
+          <div style="font-size:13.5px;font-weight:750;color:var(--amb);margin-bottom:5px">
+            This is still live on ${live.map(([k]) => PLATFORMS[k]?.name || k).join(' and ')}</div>
+          <div style="font-size:13px;color:var(--mut);line-height:1.55">
+            Removing it here only deletes Fliparo's copy. The listing keeps running and
+            can still sell — end it on ${live.length > 1 ? 'each site' : PLATFORMS[live[0][0]]?.name || 'the site'} first
+            if that is what you meant to do.</div>
+          ${live.map(([k, u]) => `<a href="${u}" target="_blank" rel="noopener"
+            style="display:block;margin-top:10px;font-size:13px;font-weight:700;color:var(--acc-hi)">
+            Open the ${esc(PLATFORMS[k]?.name || k)} listing →</a>`).join('')}
+        </div>` : ''}
+      <p>${worth ? `Takes ${money(worth)} off your inventory total. ` : ''}Your scan,
+         condition report and listing draft for this item are deleted from this
+         browser, and there is no copy anywhere else to restore from.</p>
+      <button class="btn btn-solid" style="background:var(--red);color:#fff;border-color:transparent"
+        onclick="confirmDelete()">Remove it</button>
+      <button class="btn btn-ghost" style="margin-top:9px" onclick="pendingDelete=null;closeSheet()">Keep it</button>`;
   } else if (kind === 'legal') {
     b.innerHTML = `<h3>Why eBay only</h3>
       <p><b style="color:var(--fg)">eBay</b> runs a genuine public Sell API. Fliparo creates the inventory item, builds the offer and publishes it — with your permission, over OAuth.</p>
@@ -4041,8 +4320,34 @@ function filterInv(f, btn) {
   btn.classList.add('on');
   renderInventory();
 }
+/* What the current filter is worth. Sold stock is counted separately from
+   stock still to sell, because adding the two together produces a headline
+   number that is neither money in the bank nor money still on the shelf. */
+function invTotals(list) {
+  const sum = f => list.filter(f).reduce((a, i) => a + (Number(i.price) || 0), 0);
+  return {
+    count: list.length,
+    open:  sum(i => i.status !== 'sold'),
+    sold:  sum(i => i.status === 'sold')
+  };
+}
+
+function renderInvTotals(list) {
+  const el = document.getElementById('invTotals');
+  if (!el) return;
+  if (!list.length) { el.innerHTML = ''; return; }
+  const t = invTotals(list);
+  const cell = (v, l, c) => `<div class="it"><div class="itv"${c ? ` style="color:${c}"` : ''}>${v}</div><div class="itl">${l}</div></div>`;
+  el.innerHTML = `<div class="invtot">
+      ${cell(t.count, t.count === 1 ? 'Item' : 'Items')}
+      ${invFilter !== 'sold' ? cell(money(t.open), 'Still to sell') : ''}
+      ${t.sold ? cell(money(t.sold), 'Sold', 'var(--grn)') : ''}
+    </div>`;
+}
+
 function renderInventory() {
   const list = inventory.filter(i => invFilter === 'all' || i.status === invFilter);
+  renderInvTotals(list);
   const el = document.getElementById('invList');
   if (!list.length) {
     el.innerHTML = `<div class="empty">
@@ -4057,6 +4362,9 @@ function renderInventory() {
     <div class="meta"><div class="n">${esc(i.name)}</div><div class="b">${esc(i.brand || '')} · ${esc(i.grade || '')}</div></div>
     <div class="right"><div class="p">${money(i.price)}</div>
       <div class="s" style="color:${i.status === 'listed' ? 'var(--grn)' : i.status === 'sold' ? 'var(--acc)' : 'var(--dim)'}">${i.status}</div></div>
+    <button class="del" title="Remove from inventory" aria-label="Remove ${esc(i.name)} from inventory"
+      onclick="event.stopPropagation();askDelete('${i.id}')">
+      <svg viewBox="0 0 24 24">${GLYPH.trash}</svg></button>
   </div>`).join('');
 }
 function openItem(id) {
@@ -4086,6 +4394,8 @@ function openItem(id) {
     <div style="margin-top:20px">
       <button class="btn btn-acc" onclick="relist('${id}')">Create listings</button>
       <button class="btn btn-ghost" style="margin-top:9px" onclick="markSold('${id}')">Mark as ${viewingItem.status === 'sold' ? 'listed' : 'sold'}</button>
+      <button class="btn btn-ghost" style="margin-top:9px;color:var(--red);border-color:rgba(255,90,78,.28)"
+        onclick="askDelete('${id}')">Remove from inventory</button>
     </div>`;
   go('item');
 }
@@ -4101,11 +4411,49 @@ function markSold(id) {
   toast(`Marked as ${it.status}`);
   openItem(id);
 }
-function deleteItem() {
-  if (!viewingItem || !confirm('Delete this item?')) return;
-  inventory = inventory.filter(i => i.id !== viewingItem.id);
+/* ── removing an item ─────────────────────────────────────────────────────
+   Two things made the old one-line confirm() the wrong control here.
+
+   The first is that it is destructive and irreversible — inventory lives in
+   this browser only, so a deleted record is not recoverable from a server.
+   The second is subtler and matters more: if the item has a live eBay
+   listing, removing it from Fliparo does NOT end that listing. It keeps
+   selling, and the seller keeps owing the buyer an item. A dialog that says
+   only "Delete this item?" invites exactly that mistake, so the sheet names
+   the consequence and links out to end the listing on eBay first. */
+let pendingDelete = null;
+
+function askDelete(id) {
+  const it = inventory.find(i => i.id === id);
+  if (!it) return;
+  pendingDelete = id;
+  showSheet('deleteItem', it);
+  haptic();
+}
+
+/* Header trash on the item screen routes through the same sheet. */
+function deleteItem() { if (viewingItem) askDelete(viewingItem.id); }
+
+function confirmDelete() {
+  const it = inventory.find(i => i.id === pendingDelete);
+  pendingDelete = null;
+  closeSheet();
+  if (!it) return;
+
+  const wasWorth = Number(it.price) || 0;
+  inventory = inventory.filter(i => i.id !== it.id);
   store('inventory', inventory);
-  renderNav(); toast('Deleted'); back();
+
+  /* Everything that shows a total has to be told, or the number on screen
+     outlives the item it was counting. */
+  renderNav();
+  renderInventory();
+  renderHome();
+
+  toast(wasWorth ? `Removed — ${money(wasWorth)} off your inventory` : 'Removed');
+
+  /* Only leave the item screen if that is where this was triggered from. */
+  if (viewingItem && viewingItem.id === it.id) { viewingItem = null; back(); }
 }
 
 /* ═════════════════════════════ HOME ═════════════════════════════ */
@@ -4114,18 +4462,191 @@ function deleteItem() {
    home screen does not read as a static page you have already finished with —
    and each one still lands on the same idea: the stuff you own is worth money
    you have not counted. */
+/* The question these have to answer is "how much can I make flipping this",
+   not "isn't machine vision clever". Index 0 is the one a first-time visitor
+   always sees — a landing page that greets people differently on each load
+   cannot build a message. The rest rotate for returning users, who have
+   already been sold and would rather not read the same line every morning. */
 const HOME_LINES = [
-  { eyebrow: 'Point. Shoot. Price.',     head: "What's in<br>your closet?" },
-  { eyebrow: 'Resale intelligence',      head: 'Your junk drawer<br>has a number' },
-  { eyebrow: 'Photo powered pricing',    head: 'Find the money<br>in your stuff' },
+  { eyebrow: 'Know before you buy',      head: 'Is this worth<br>flipping?' },
+  { eyebrow: 'Sourcing intelligence',    head: 'Find the deals<br>worth flipping' },
+  { eyebrow: 'Profit, not guesswork',    head: 'What will you<br>clear on it?' },
   { eyebrow: 'Photograph. Price. List.', head: 'Shelf to listing<br>in one minute' },
-  { eyebrow: 'One photo, one price',     head: 'Guess less.<br>Sell for more' }
+  { eyebrow: 'Cost, fees, profit',       head: 'Guess less.<br>Make more' }
 ];
+
+/* ═══════════════════════ LANDING SECTIONS ═══════════════════════════════
+   Everything here answers a question a first-time visitor has and a returning
+   user does not: what does this do, what does it produce, what does it cost,
+   and why should the number be believed. It renders in the landing state only
+   — no account and nothing scanned — and renderHome clears it otherwise, so
+   the working app never turns into a brochure. */
+
+/* A plausible US ground rate for a boxed pair of shoes. Used only to make the
+   worked example add up to something realistic, and seeded into the editable
+   shipping field so the demo and the report agree. Never applied silently to
+   a real scan. */
+const DEMO_SHIP = 12;
+
+const HOW_STEPS = [
+  ['Take a photo', 'Snap the item in the aisle, before you buy it. More angles — tags, labels, flaws — means a tighter estimate.'],
+  ['Fliparo reads it', 'It identifies the item from the photos, grades the condition against what it can actually see, and estimates the resale price.'],
+  ['See your profit', 'Sale price, minus eBay fees, minus shipping, minus what you paid. Type in your cost and the profit updates as you stand there.'],
+  ['List it', 'A finished eBay listing — title, description, item specifics — published to your own account through eBay\'s official API.']
+];
+
+/* Honest, and specific enough to be checkable. No invented usage counts: with
+   no customers yet, "10,000 items analyzed" is the one claim that would cost
+   more in credibility than it buys in reassurance. */
+const TRUST_POINTS = [
+  'Every estimate comes with a confidence score and a price range, not a single number presented as fact.',
+  'Condition is graded from your actual photos, and every visible flaw is listed with what it costs you.',
+  'Fee maths is real arithmetic on eBay\'s published rates — 13.35% plus $0.40 — not a rounded guess.',
+  'Listings publish through eBay\'s official Sell API with your own OAuth login. Nothing is scraped, and your account is never at risk.',
+  'The report tells you to walk away when the margin is not there. A tool that likes everything is worth nothing.'
+];
+
+const FAQ = [
+  ['How does Fliparo work out what something is worth?',
+   'It sends your photos to a vision model trained on a broad picture of the resale market, and asks for a realistic recent <b>sold</b> price — not a retail price, and not what optimistic sellers are asking. You get a low, typical and high figure plus a confidence score, so you can see how sure it is rather than just what it thinks.'],
+  ['Does Fliparo use actual sold eBay listings?',
+   'Not today, and it is worth being straight about that. eBay does not expose completed-sale data through its public API — the one that does is approval-gated — so Fliparo\'s valuation is a model estimate informed by market knowledge, not a live query against real closed listings. That is why every estimate carries a confidence score and a range. Wiring up genuine sold data is on the list; until it exists, this page will not claim it does.'],
+  ['Is the estimated price guaranteed?',
+   'No. It is an estimate, and the confidence score tells you how much weight to put on it. What an item actually fetches depends on your photos, your timing, your feedback score and who happens to be looking that week. Treat the number as a well-informed opinion to check against, not a promise.'],
+  ['Does it account for eBay fees?',
+   'Yes, and shipping, and what you paid. The profit box on every report shows the subtraction line by line — sale price, fees, shipping, your cost — so the final number is checkable rather than asserted. Both shipping and your cost are yours to type in.'],
+  ['Can Fliparo list straight to my eBay account?',
+   'Yes, on the paid plans. You link your eBay account once through eBay\'s own login screen, and Fliparo creates the inventory item, builds the offer and publishes it. It never sees or stores your eBay password.'],
+  ['What if it identifies my item wrongly?',
+   'Every field on the listing screen is editable before anything is published — you are holding the item and the model is not, so what you type always wins. If the photos are too poor or ambiguous to identify something, Fliparo is built to say so and drop its confidence rather than invent a plausible answer.'],
+  ['Can I cancel?',
+   'Any time, in two taps from the Plans screen. No email, no retention call. Your scans and your inventory stay yours if you downgrade.'],
+  ['What kinds of items work best?',
+   'Anything with a recognisable brand, model or style code — sneakers, clothing, electronics, tools, collectibles, game consoles. It struggles with genuinely generic goods, because a plain unbranded mug has no identity to look up and no resale market to price against.']
+];
+
+function renderHomeHow() {
+  const el = document.getElementById('homeHow');
+  if (!el) return;
+
+  /* Landing state only: no account, nothing scanned. */
+  if (me.signedIn || inventory.length) { el.innerHTML = ''; return; }
+
+  const d = EXAMPLE_SCAN;
+  const sale = d.averagePrice;
+  const fees = Math.round(sale - netFromPrice('ebay', sale));
+  const ship = shipEst() || DEMO_SHIP;
+  const buy  = d.buyPrice || 0;
+  const made = sale - fees - ship - buy;
+  const tier = tierOf(overallOf(d));
+
+  el.innerHTML = `
+    <h2 class="sec">How it works</h2>
+    <div class="how">
+      ${HOW_STEPS.map(([t, dsc], i) => `<div class="step">
+          <div class="n">${i + 1}</div>
+          <div><div class="t">${esc(t)}</div><div class="d">${dsc}</div></div>
+        </div>`).join('')}
+    </div>
+
+    <h2 class="sec">What you get back</h2>
+    <div class="exdemo">
+      <div class="eh">
+        <div>
+          <div class="en">${esc(d.productName)}</div>
+          <div class="es">${esc([d.brand, `Size ${d.size}`, d.conditionGrade].filter(Boolean).join(' · '))}</div>
+        </div>
+        <span class="tier-chip" style="--tc:${tier.c};--tc-bg:${tier.c}2E;--tc-br:${tier.c}66">${overallOf(d)} ${tier.name}</span>
+      </div>
+
+      <div class="exline"><span>Sells for</span><b>${money(sale)}</b></div>
+      <div class="exline"><span>eBay fees</span><b>−${money(fees)}</b></div>
+      <div class="exline"><span>Shipping</span><b>−${money(ship)}</b></div>
+      <div class="exline"><span>You paid</span><b>−${money(buy)}</b></div>
+      <div class="exline tot"><span>Your profit</span><b>+${money(made)}</b></div>
+
+      <div style="font-size:12.5px;color:var(--mut);line-height:1.55;margin-top:13px">
+        Plus a condition report with every visible flaw priced, and a finished eBay
+        listing ready to publish. Illustrative figures on a sample item.
+      </div>
+      <button class="btn btn-acc" style="margin-top:15px;height:50px" onclick="showExample()">
+        See the full example report</button>
+    </div>`;
+}
+
+function renderHomePitch() {
+  const el = document.getElementById('homePitch');
+  if (!el) return;
+
+  if (me.signedIn || inventory.length) { el.innerHTML = ''; return; }
+
+  /* Prices come from /api/plans, which reads PLANS in accounts.mjs — the same
+     source Stripe checkout uses. Hard-coding "$9.99" here is how a landing
+     page ends up advertising a price the checkout no longer charges. */
+  if (!PLANS.length) { loadPlans().then(renderHomePitch); }
+
+  const priceBlock = !PLANS.length ? '' : `
+    <h2 class="sec">What it costs</h2>
+    <div class="pricerow">
+      ${PLANS.map(p => `<div class="pcard ${p.popular ? 'pop' : ''}">
+          <div class="pn">${esc(p.name)}</div>
+          <div class="pv"><b>${esc(p.priceLabel)}</b>${p.price ? '<span>/month</span>' : ''}</div>
+          ${p.features.slice(0, 4).map(f => `<div class="pf">
+            <svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>${esc(f)}</span></div>`).join('')}
+        </div>`).join('')}
+    </div>
+    <button class="btn btn-acc" style="margin-top:14px" onclick="tabTo('plan')">Start flipping</button>
+    <div style="text-align:center;font-size:12.5px;color:var(--dim);margin-top:9px">
+      Free plan needs no card. Cancel any time.</div>`;
+
+  const scoreBands = TIERS.map((t, i) => {
+    const hi = i === 0 ? 100 : TIERS[i - 1].min - 1;
+    return `<div class="band"><span class="bd" style="background:${t.c}"></span>
+      <b>${t.min}–${hi}</b><span style="color:${t.c};font-weight:700">${t.name}</span>
+      <span style="color:var(--dim);font-size:12px">${esc(t.line)}</span></div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <h2 class="sec">The Resell Score</h2>
+    <div class="card">
+      <p style="font-size:13.5px;color:var(--mut);line-height:1.6;margin-bottom:15px">
+        One number for "is this worth my money and my afternoon". Five factors,
+        weighted — and the weights are published because a score you cannot
+        interrogate is just a vibe with a decimal point.</p>
+      <div class="sbreak">
+        ${SCORE_FACTORS.map(f => `<div class="sbrow">
+            <div class="sbn">${f.name}<i>${f.why}</i></div>
+            <div class="sbv" style="color:var(--acc-hi)">${Math.round(f.w * 100)}%</div>
+          </div>`).join('')}
+      </div>
+      <div class="bands">${scoreBands}</div>
+    </div>
+
+    ${priceBlock}
+
+    <h2 class="sec">Where the numbers come from</h2>
+    <div class="trust">
+      <div class="tt">Built for people actually doing this</div>
+      <p>Fliparo is new, so there are no customer counts to quote at you. What
+         there is, is a report that shows its working.</p>
+      ${TRUST_POINTS.map(t => `<div class="tr">
+        <svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>${t}</span></div>`).join('')}
+    </div>
+
+    <h2 class="sec">Common questions</h2>
+    <div class="faq">
+      ${FAQ.map(([q, a]) => `<details>
+        <summary>${esc(q)}</summary>
+        <div class="fa">${a}</div>
+      </details>`).join('')}
+    </div>`;
+}
 
 function renderHome() {
   /* Stable for the session, so the headline does not change under the user
      while they are looking at it. */
-  if (homeLine === null) homeLine = Math.floor(Math.random() * HOME_LINES.length);
+  const landing = !me.signedIn && !inventory.length;
+  if (homeLine === null) homeLine = landing ? 0 : Math.floor(Math.random() * HOME_LINES.length);
   const line = HOME_LINES[homeLine];
   document.getElementById('homeGreet').textContent = line.eyebrow;
   document.getElementById('homeHead').innerHTML = line.head;
@@ -4140,15 +4661,20 @@ function renderHome() {
   const art = document.getElementById('heroArt');
   if (art && !art.childElementCount) art.innerHTML = [TRENDS[0], TRENDS[2], TRENDS[4]].filter(Boolean).map(t => imgTile(t)).join('');
 
+  renderHomeHow();
+  renderHomePitch();
+
   const hasItems = inventory.length > 0;
   document.getElementById('homeStatsWrap').style.display  = hasItems ? '' : 'none';
   document.getElementById('homeRecentWrap').style.display = hasItems ? '' : 'none';
 
   if (hasItems) {
-    const total = inventory.reduce((a, i) => a + (i.price || 0), 0);
+    /* Sold stock is excluded: money already collected is not inventory value,
+       and rolling the two together gives a headline figure that is neither. */
+    const t = invTotals(inventory);
     const best = inventory.reduce((a, i) => (i.price || 0) > (a?.price || 0) ? i : a, null);
     document.getElementById('stScans').textContent  = inventory.length;
-    document.getElementById('stValue').textContent  = money(total);
+    document.getElementById('stValue').textContent  = money(t.open);
     document.getElementById('stListed').textContent = inventory.filter(i => i.status === 'listed').length;
     document.getElementById('stBest').textContent   = best ? money(best.price) : '—';
     document.getElementById('homeRecent').innerHTML = inventory.slice(0, 3).map(i => {
