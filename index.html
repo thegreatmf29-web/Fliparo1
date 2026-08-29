@@ -2382,17 +2382,62 @@ async function submitCode() {
   } finally { btn.disabled = false; btn.textContent = 'Verify'; }
 }
 
+/* ── signing out ──────────────────────────────────────────────────────────
+   Sign-out used to drop the session token and nothing else, which left the
+   previous person's scans, photos, listing drafts, email address and shipping
+   address sitting in localStorage for whoever picked the device up next. On a
+   shared laptop or a phone handed to someone, "Sign out" that leaves your
+   inventory on screen is not sign-out.
+
+   The complication is that inventory has no server copy — it lives in this
+   browser and nowhere else — so clearing it is permanent. Hence the sheet:
+   it says what is about to be destroyed and how much it is worth before
+   destroying it, rather than doing it silently either way. */
+const PERSONAL_KEYS = [
+  'inventory',    // scans, photos, listing drafts
+  'lastEmail',    // prefilled sign-in address
+  'shipCity', 'shipState', 'shipZip',  // their address, used for eBay item location
+  'joined', 'meCache', 'pendingAuth', 'resendReadyAt',
+  'shipEst', 'strategy', 'tone'
+];
+
+function askSignOut() {
+  const n = inventory.length;
+  const worth = invTotals(inventory).open;
+  const b = document.getElementById('sheetBody');
+  b.innerHTML = `<h3>Sign out of Fliparo?</h3>
+    ${n ? `<div class="card tight" style="margin-bottom:14px;border-color:rgba(255,197,61,.32);
+           background:rgba(255,197,61,.07)">
+        <div style="font-size:13.5px;font-weight:750;color:var(--amb);margin-bottom:5px">
+          This also erases your ${n} saved item${n === 1 ? '' : 's'}${worth ? ` (${money(worth)})` : ''}</div>
+        <div style="font-size:13px;color:var(--mut);line-height:1.55">
+          Your inventory is stored in this browser only — there is no copy on our
+          server to sign back into. Signing out deletes it for good.</div>
+      </div>` : ''}
+    <p>Signs you out and clears everything personal from this browser: saved
+       items and photos, your email address, and your shipping address. Your
+       account and plan are untouched — sign back in any time.</p>
+    <button class="btn btn-solid" style="background:var(--red);color:#fff;border-color:transparent"
+      onclick="signOut()">Sign out${n ? ' and erase' : ''}</button>
+    <button class="btn btn-ghost" style="margin-top:9px" onclick="closeSheet()">Stay signed in</button>`;
+  openSheet();
+}
+
 function signOut() {
+  closeSheet();
   setToken(null);
-  /* Leaving this behind produced "Not signed in" sitting directly above
-     "Flipping since May 2026" on the profile screen. */
-  store('joined', null);
-  store('meCache', null);
-  store('pendingAuth', null);
+  /* deviceId deliberately survives: it is a random string, carries nothing
+     personal, and is what the server counts anonymous scans against. Clearing
+     it would hand out a fresh free allowance on every sign-out. */
+  PERSONAL_KEYS.forEach(k => store(k, null));
+
+  inventory = [];
+  current = null; photos = []; listings = {}; viewingItem = null; viewingExample = false;
   meConfirmed = true; serverWaking = false;
   me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:3, scansLeft:3, unlimited:false, autoList:false };
-  renderNav(); renderQuota();
-  toast('Signed out');
+
+  renderNav(); renderQuota(); renderInventory(); renderHome();
+  toast('Signed out — this browser is clear');
   tabTo('home');
 }
 
@@ -4752,7 +4797,7 @@ function renderProfile() {
       <div class="list-link" onclick="go('settings')" style="cursor:pointer"><span>Settings</span><span class="lv">›</span></div>
       <div class="list-link" onclick="showSheet('privacy')" style="cursor:pointer"><span>Privacy</span><span class="lv">›</span></div>
       <div class="list-link" onclick="showSheet('legal')" style="cursor:pointer"><span>How marketplaces work</span><span class="lv">›</span></div>
-      ${me.signedIn ? `<div class="list-link" onclick="signOut()" style="cursor:pointer;color:var(--red)"><span>Sign out</span><span class="lv"></span></div>` : ''}
+      ${me.signedIn ? `<div class="list-link" onclick="askSignOut()" style="cursor:pointer;color:var(--red)"><span>Sign out</span><span class="lv"></span></div>` : ''}
     </div>`;
   renderAccounts('accountList');
 }
