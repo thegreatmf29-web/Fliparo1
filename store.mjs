@@ -56,22 +56,44 @@ function writeFileDb() {
 /* ════════════════════════════ postgres driver ════════════════════════════ */
 
 let pool = null;
+/* The in-flight promise, not the pool itself. Assigning `pool` before the
+   CREATE TABLE await meant a second concurrent caller saw a truthy pool and
+   queried `users` before the schema existed — which on a cold start is the
+   normal case, because the browser fires /api/me, /api/plans, /api/config and
+   /api/health in parallel the moment the service wakes. Worse, if CREATE TABLE
+   threw, `pool` stayed assigned and every later call skipped the schema step
+   forever against a database that was never migrated. Memoising the promise
+   and clearing it on failure fixes both: concurrent callers await the same
+   initialisation, and a failed one is retried rather than cached. */
+let poolReady = null;
+const poolErrorHandlers = [];
+
+/* Registered by server.mjs. node-postgres emits 'error' on the Pool when an
+   idle connection drops — routine behaviour on Neon and Supabase free tiers —
+   and an unhandled 'error' event terminates the process. */
+export function onPoolError(fn) { poolErrorHandlers.push(fn); }
 
 async function pg() {
   if (pool) return pool;
-  let Pg;
-  try { Pg = await import('pg'); }
-  catch {
-    throw new Error(
-      'DATABASE_URL is set but the "pg" package is not installed. Run: npm install pg'
-    );
-  }
-  pool = new Pg.default.Pool({
-    connectionString: DATABASE_URL,
-    ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
-    max: 4
-  });
-  await pool.query(`
+  if (poolReady) return poolReady;
+  poolReady = (async () => {
+    let Pg;
+    try { Pg = await import('pg'); }
+    catch {
+      throw new Error(
+        'DATABASE_URL is set but the "pg" package is not installed. Run: npm install pg'
+      );
+    }
+    const p = new Pg.default.Pool({
+      connectionString: DATABASE_URL,
+      ssl: /localhost|127\.0\.0\.1/.test(DATABASE_URL) ? false : { rejectUnauthorized: false },
+      max: 4
+    });
+    p.on('error', e => {
+      if (poolErrorHandlers.length) poolErrorHandlers.forEach(h => { try { h(e); } catch {} });
+      else console.error('[pg pool]', e.message);
+    });
+    await p.query(`
     CREATE TABLE IF NOT EXISTS users (
       email             TEXT PRIMARY KEY,
       created_at        BIGINT NOT NULL,
@@ -92,7 +114,10 @@ async function pg() {
     );
     CREATE INDEX IF NOT EXISTS users_customer_idx ON users (stripe_customer);
   `);
-  return pool;
+    pool = p;              // only once the schema is actually there
+    return p;
+  })().catch(e => { poolReady = null; throw e; });   // failed init is retried, not cached
+  return poolReady;
 }
 
 const rowToUser = r => r && ({
@@ -157,6 +182,41 @@ export async function putUser(u) {
   return u;
 }
 
+/* ── atomic counter bumps ─────────────────────────────────────────────────
+   putUser writes the whole row, which makes it the wrong tool for "add one to
+   a counter". A scan loads the user, spends 15-40 seconds in Claude, then
+   saves. If a Stripe webhook upgraded that user during those seconds — which
+   is exactly what happens when somebody hits the paywall mid-scan and pays —
+   the save carries the stale row back and overwrites plan, stripe_customer
+   and stripe_sub with their pre-payment values. Stripe has the money, the app
+   says Free, the webhook has already fired and will not fire again, and
+   nothing logs that it happened.
+
+   The same read-modify-write also loses concurrent increments: two tabs at
+   scansLeft=1 both pass the check and only one increment survives.
+
+   So the counters are incremented in the database, touching one column and
+   reading nothing first. The returned value is authoritative. */
+async function bump(email, column) {
+  const key = String(email).toLowerCase().trim();
+  if (DRIVER === 'file') {
+    const db = readFileDb();
+    const u = db.users[key];
+    if (!u) return null;
+    const field = column === 'scans_used' ? 'scansUsed' : 'listingsUsed';
+    u[field] = (u[field] || 0) + 1;
+    writeFileDb();
+    return u[field];
+  }
+  const { rows } = await (await pg()).query(
+    `UPDATE users SET ${column} = ${column} + 1 WHERE email=$1 RETURNING ${column}`, [key]
+  );
+  return rows[0]?.[column] ?? null;
+}
+
+export const bumpScans    = email => bump(email, 'scans_used');
+export const bumpListings = email => bump(email, 'listings_used');
+
 export async function findByCustomer(customerId) {
   if (!customerId) return null;
   if (DRIVER === 'file') {
@@ -201,6 +261,42 @@ export async function bumpCodeAttempts(email) {
     return;
   }
   await (await pg()).query('UPDATE codes SET attempts=attempts+1 WHERE email=$1', [email]);
+}
+
+/* ── claiming an attempt, atomically ──────────────────────────────────────
+   verifyCode used to read the attempt count, compare it to the cap, and
+   write an increment as three separate awaited steps. Fire twenty guesses at
+   once and all twenty read attempts=0, all twenty pass the check, and the
+   five-attempt cap allows twenty tries. Against a six-digit code that
+   difference is the whole security margin.
+
+   This claims the attempt and reports the result in one statement, so the
+   database — not the order the requests happen to interleave in — decides
+   who gets the last try. Returns null when the code is gone or the cap is
+   already spent, which the caller treats exactly like a wrong code so a
+   guesser learns nothing from the difference. */
+export async function claimCodeAttempt(email, max) {
+  email = String(email || '').toLowerCase().trim();
+
+  if (DRIVER === 'file') {
+    /* Single-threaded and synchronous under the file driver, so read-modify-
+       write is genuinely atomic here — there is no await between the read and
+       the write for another request to interleave into. */
+    const c = readFileDb().codes[email];
+    if (!c || c.attempts >= max) return null;
+    c.attempts++;
+    writeFileDb();
+    return { codeHash: c.codeHash, expires: Number(c.expires), attempts: c.attempts };
+  }
+
+  const { rows } = await (await pg()).query(
+    `UPDATE codes SET attempts = attempts + 1
+      WHERE email = $1 AND attempts < $2
+      RETURNING code_hash, expires, attempts`,
+    [email, max]
+  );
+  const r = rows[0];
+  return r && { codeHash: r.code_hash, expires: Number(r.expires), attempts: r.attempts };
 }
 
 export async function clearCode(email) {
