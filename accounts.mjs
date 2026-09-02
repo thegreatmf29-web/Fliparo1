@@ -329,10 +329,13 @@ export async function checkScanAllowed(req) {
   return { ok: true, user: null, anon: deviceId, quota: { plan: 'free', scansUsed: q.scansUsed, scansLimit: PLANS.free.scans, scansLeft: PLANS.free.scans - q.scansUsed, autoList: false } };
 }
 
+/* Increments in the database rather than saving the user object this request
+   loaded 40 seconds ago — see the note on store.bumpScans. Writing the whole
+   row here is how a customer who paid mid-scan got silently reverted to Free. */
 export async function consumeScan(ctx) {
   if (ctx.user) {
-    ctx.user.scansUsed = (ctx.user.scansUsed || 0) + 1;
-    await store.putUser(ctx.user);
+    const n = await store.bumpScans(ctx.user.email);
+    if (n != null) ctx.user.scansUsed = n;   // keep the in-request copy honest
   } else if (ctx.anon) {
     anonConsume(ctx.anon);
   }
@@ -386,6 +389,22 @@ export async function requestCode(req, res) {
         error: 'Sign-in email is not set up on this server yet. Add BREVO_API_KEY (or RESEND_API_KEY) — see SETUP-BILLING.md.'
       });
     }
+    /* Handing the login code back in the API response is a complete
+       authentication bypass for any email address, so it must never turn on
+       by accident. It used to key off `NODE_ENV !== 'production'`, which
+       meant a preview deploy that simply never set NODE_ENV — or a
+       still-being-configured production box, a normal state during setup —
+       would hand out codes to anyone who asked.
+
+       Now it takes a deliberate flag that exists for no other purpose, so
+       nobody sets it without knowing exactly what it does. */
+    const codeEchoAllowed = process.env.ALLOW_DEV_CODE_ECHO === 'yes-i-understand-this-bypasses-login';
+    if (!codeEchoAllowed) {
+      return res.status(503).json({
+        code: 'nomail',
+        error: 'Sign-in email is not set up on this server yet. The code was printed to the server log.'
+      });
+    }
     return res.json({ ok: true, mailConfigured: false, devCode: code });
   }
 
@@ -407,16 +426,29 @@ export async function verifyCode(req, res) {
     return res.status(400).json({ error: 'Enter the 6-digit code from your email.' });
   }
 
-  const rec = await store.getCode(email);
+  /* Claims one of the five attempts in a single statement before the code is
+     even compared. The old shape — read the count, check it, compare, then
+     write the increment — let concurrent guesses all read attempts=0 and all
+     pass the check, so twenty simultaneous requests got twenty tries out of a
+     five-try budget. The database arbitrates now, not request interleaving.
+
+     A spent budget and a missing code return the same message on purpose:
+     "wrong code" versus "out of attempts" tells an attacker whether the email
+     has a live code outstanding, and that is not information worth giving. */
+  const rec = await store.claimCodeAttempt(email, 5);
   if (!rec) return res.status(400).json({ error: 'That code has expired. Ask for a new one.' });
-  if (Date.now() > rec.expires) { await store.clearCode(email); return res.status(400).json({ error: 'That code has expired. Ask for a new one.' }); }
-  if (rec.attempts >= 5) { await store.clearCode(email); return res.status(429).json({ error: 'Too many wrong attempts. Ask for a new code.' }); }
+
+  if (Date.now() > rec.expires) {
+    await store.clearCode(email);
+    return res.status(400).json({ error: 'That code has expired. Ask for a new one.' });
+  }
 
   const given = Buffer.from(hashCode(email, code));
   const want  = Buffer.from(rec.codeHash);
   const good  = given.length === want.length && crypto.timingSafeEqual(given, want);
   if (!good) {
-    await store.bumpCodeAttempts(email);
+    /* The attempt is already spent — nothing further to write. */
+    if (rec.attempts >= 5) await store.clearCode(email);
     return res.status(400).json({ error: 'That code is not right.' });
   }
   await store.clearCode(email);
@@ -687,9 +719,47 @@ const planFromPriceId = id => {
   return null;
 };
 
+/* ── webhook replay protection ────────────────────────────────────────────
+   Stripe delivers at least once, not exactly once, and retries anything it
+   doesn't get a timely 2xx for. On Render's free tier a cold start runs 30-60
+   seconds against Stripe's 30-second timeout, so retries are not an edge case
+   here — they are the normal path after a payment.
+
+   That mattered because checkout.session.completed resets scansUsed to 0.
+   Each redelivery of the same event handed out another month's allowance
+   without another charge, and a determined customer could trigger it by
+   letting the service sleep before paying.
+
+   Signature verification already rejects replays older than 300 seconds, but
+   Stripe's own retry schedule runs for days and those retries are genuinely,
+   freshly signed. Only the event id distinguishes them.
+
+   Kept in memory: this survives the retry burst that follows one payment,
+   which is the actual attack surface, and costs nothing. It does not survive
+   a restart — a database table would, and is the upgrade if this ever needs
+   to be airtight. */
+const seenEvents = new Map();
+const EVENT_TTL = 24 * 60 * 60 * 1000;
+
+function alreadyHandled(id) {
+  if (!id) return false;
+  const now = Date.now();
+  if (seenEvents.size > 5000) {
+    for (const [k, t] of seenEvents) if (now - t > EVENT_TTL) seenEvents.delete(k);
+  }
+  const seen = seenEvents.has(id);
+  seenEvents.set(id, now);
+  return seen;
+}
+
 export async function handleWebhookEvent(event) {
   const obj = event?.data?.object || {};
   const type = event?.type || '';
+
+  if (alreadyHandled(event?.id)) {
+    console.log(`  · ignoring repeat delivery of ${type} (${event.id})`);
+    return;
+  }
 
   const resolveUser = async () => {
     const email = obj.metadata?.email || obj.client_reference_id;
