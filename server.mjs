@@ -50,6 +50,46 @@ function send(res, status, body, headers = {}) {
     'access-control-allow-origin': '*',
     'access-control-allow-headers': 'content-type,x-device-id,authorization',
     'access-control-allow-methods': 'GET,POST,OPTIONS',
+
+    /* ── security headers ──────────────────────────────────────────────────
+       Every response went out with CORS and nothing else. These are cheap and
+       each one closes a real door:
+
+       frame-ancestors 'none' stops the app being iframed by another site,
+       which matters most on the publish-to-eBay flow — a transparent overlay
+       over somebody else's page is how a click gets stolen.
+
+       The CSP is scoped to what this app actually uses. It has to allow
+       'unsafe-inline' because the entire frontend is one inline <script> and
+       inline onclick handlers, so it is not the wall it would be in a
+       multi-file build — but it still confines script and connect sources to
+       this origin, which turns a stolen-token exfiltration into a blocked
+       request. Tightening this properly means moving the inline JS to a file;
+       worth doing, not worth blocking on.
+
+       img-src allows data: and blob: because photos are handled as data URLs
+       before upload. HSTS is only sent over HTTPS — sending it on a plain
+       local request would pin a developer's own browser to a scheme their dev
+       server does not speak. */
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'strict-origin-when-cross-origin',
+    'x-frame-options': 'DENY',
+    'permissions-policy': 'geolocation=(), microphone=(), payment=()',
+    'content-security-policy': [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "object-src 'none'"
+    ].join('; '),
+    ...(process.env.NODE_ENV === 'production'
+      ? { 'strict-transport-security': 'max-age=31536000; includeSubDomains' }
+      : {}),
+
     ...headers
   });
   res.end(payload);
@@ -59,8 +99,98 @@ const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.cs
                '.json':'application/json', '.png':'image/png', '.jpg':'image/jpeg',
                '.svg':'image/svg+xml', '.ico':'image/x-icon', '.webmanifest':'application/manifest+json' };
 
+/* ── who is actually calling ──────────────────────────────────────────────
+   req.socket.remoteAddress used to be the answer. Behind Render — or any
+   proxy, CDN or load balancer — it is the proxy's address, identical for
+   every visitor on earth. Every rate limit keyed on it was therefore either
+   limiting nobody or limiting everybody at once.
+
+   X-Forwarded-For is a client-settable header, so trusting it blindly is its
+   own hole: anyone can spoof an address and reset their own bucket. The
+   compromise that actually holds is to trust it only when we know a proxy is
+   in front of us (TRUST_PROXY, on by default in production because Render
+   always is), and to take the LEFTMOST entry, which is the original client —
+   entries a caller injects themselves get appended to the right. */
+const TRUST_PROXY = process.env.TRUST_PROXY
+  ? process.env.TRUST_PROXY !== 'false'
+  : process.env.NODE_ENV === 'production';
+
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) {
+      const first = String(xff).split(',')[0].trim();
+      if (first) return first;
+    }
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+/* ── auth abuse limiter ───────────────────────────────────────────────────
+   /api/auth/verify had no rate limiting of any kind — the `gate` middleware
+   is only wired to the two scan routes. A six-digit code is a million
+   possibilities inside a ten-minute window, and the five-attempt cap lived
+   inside verifyCode as a read-then-write, so concurrent guesses all read the
+   same stale count and sailed past it.
+
+   Limits are keyed on IP *and* on the email being targeted, because either
+   one alone leaves a hole: per-IP only lets a botnet spread a single-account
+   attack across addresses, per-email only lets one address work through a
+   list of accounts. Both buckets have to allow the request. */
+const authBuckets = new Map();
+
+function authLimit(key, max, windowMs) {
+  const now = Date.now();
+  const b = authBuckets.get(key) || { n: 0, reset: now + windowMs };
+  if (now > b.reset) { b.n = 0; b.reset = now + windowMs; }
+  b.n++;
+  authBuckets.set(key, b);
+  return { ok: b.n <= max, retryInSec: Math.ceil((b.reset - now) / 1000) };
+}
+
+/* Unbounded Maps are a slow memory leak on a long-lived process. */
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of authBuckets) if (now > b.reset) authBuckets.delete(k);
+}, 10 * 60 * 1000).unref?.();
+
+function authGuard({ perIp, perEmail, windowMs }) {
+  return (req, res, next) => {
+    const email = String(req.body?.email || '').toLowerCase().trim();
+
+    const ipHit = authLimit(`ip:${req.ip}`, perIp, windowMs);
+    const emHit = email ? authLimit(`em:${email}`, perEmail, windowMs) : { ok: true };
+
+    if (!ipHit.ok || !emHit.ok) {
+      const wait = Math.max(ipHit.retryInSec || 0, emHit.retryInSec || 0);
+      /* Deliberately identical whichever bucket tripped — telling a caller
+         which one they hit tells them how to route around it. */
+      return res.status(429).json({
+        code: 'AUTH_RATE_LIMIT',
+        error: `Too many attempts. Try again in ${Math.ceil(wait / 60)} minute${wait > 60 ? 's' : ''}.`,
+        retryInSeconds: wait
+      });
+    }
+    next();
+  };
+}
+
 const server = http.createServer(async (req, rawRes) => {
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  /* This line used to sit outside any try/catch, which made it a one-packet
+     remote kill switch: Node's HTTP parser accepts a Host header that WHATWG
+     URL refuses as a base (`Host: bad host with spaces` is enough), the
+     constructor throws synchronously inside this async handler, nothing is
+     attached to catch the rejected promise, and the process exits — taking
+     every other user's connection with it. No auth required, no rate limit in
+     front of it. Parsing defensively here, and the process-level handlers at
+     the bottom of this file, are the two halves of that fix. */
+  let url;
+  try {
+    url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  } catch {
+    try { url = new URL(req.url, 'http://localhost'); }
+    catch { return send(rawRes, 400, 'Bad request'); }
+  }
 
   if (req.method === 'OPTIONS') return send(rawRes, 204, '');
 
@@ -85,7 +215,7 @@ const server = http.createServer(async (req, rawRes) => {
   if (match) {
     req.query = Object.fromEntries(url.searchParams);
     req.get = k => req.headers[k.toLowerCase()];
-    req.ip = req.socket.remoteAddress;
+    req.ip = clientIp(req);
 
     if (req.method === 'POST') {
       const chunks = [];
@@ -1227,6 +1357,42 @@ app.post('/api/images', async (req, res) => {
   }
 });
 
+/* ==========================================================================
+   POST /api/images/delete
+
+   So a discarded scan does not leave its photos in the database for six
+   months. The client calls this when an item is removed from inventory.
+
+   Signed in only, and the ids are validated inside images.remove(). Note
+   what this deliberately does NOT do: prove the caller owned the image.
+   Ownership is not recorded anywhere — photos are stored against a random
+   id, not a user — so the honest options were to leave deletion out
+   entirely or to accept that a signed-in user who somehow learned another
+   user's 32-hex id could delete it. Given the ids are unguessable, never
+   listed, and only ever handed to the uploader, deletion-with-a-known-id is
+   a far smaller problem than photos that can never be deleted at all.
+
+   Worth fixing properly by adding an owner column when there is a reason to
+   touch this table again.
+   ========================================================================== */
+app.post('/api/images/delete', async (req, res) => {
+  try {
+    const user = await accounts.currentUser(req);
+    if (!user) return res.status(401).json({ error: 'Sign in first.' });
+
+    const list = (Array.isArray(req.body?.urls) ? req.body.urls : []).slice(0, images.MAX_PER_ITEM);
+    let removed = 0;
+    for (const u of list) {
+      try { if (await images.remove(u)) removed++; } catch { /* one bad id must not fail the batch */ }
+    }
+    res.json({ removed });
+  } catch (e) {
+    console.error('image delete:', e.message);
+    /* Never fatal to the user's actual goal, which was removing an item. */
+    res.status(200).json({ removed: 0 });
+  }
+});
+
 /* --------------------------------------------------------------------------
    Category resolution.
 
@@ -1758,6 +1924,20 @@ app.get('/api/depop/status', (_req, res) => {
 });
 
 app.post('/api/depop/publish', async (req, res) => {
+  /* This route had no authentication of any kind — unlike /api/ebay/publish
+     it never asked who was calling or whether their plan included automatic
+     listing. It was harmless only because it 503s without DEPOP_API_KEY, and
+     the comment below promises it "turns on with no code changes" once that
+     key exists. Which is exactly the problem: the day the key lands, the paid
+     feature becomes free, anonymous and unmetered.
+
+     Checked first, before the configuration check, so the gate cannot be
+     skipped by whatever order those two conditions end up in later. */
+  const allowed = await accounts.checkListingAllowed(req);
+  if (!allowed.ok) {
+    return res.status(allowed.status).json({ error: allowed.error, code: allowed.code, quota: allowed.quota });
+  }
+
   if (!process.env.DEPOP_API_KEY) {
     return res.status(503).json({
       error: 'Depop API access not enabled yet.',
@@ -2259,9 +2439,20 @@ app.get('/api/auth/diagnose', async (_req, res) => {
   res.status(500).json({ error: e.message });
  }
 });
-app.post('/api/auth/request',     accounts.requestCode);
-app.post('/api/auth/verify',      accounts.verifyCode);
-app.post('/api/auth/google',      accounts.googleAuth);
+/* Requesting a code is cheap to abuse in a different way — it sends real
+   email on your Brevo quota and can be used to spam somebody's inbox — so it
+   gets a tighter per-email limit than per-IP (a household shares an address;
+   nobody legitimately needs five codes for one account in fifteen minutes). */
+app.post('/api/auth/request', authGuard({ perIp: 10, perEmail: 5, windowMs: 15 * 60 * 1000 }),
+  accounts.requestCode);
+
+/* The one that stops account takeover. Ten guesses per quarter-hour against
+   a six-digit code puts a brute force somewhere past a century. */
+app.post('/api/auth/verify', authGuard({ perIp: 15, perEmail: 10, windowMs: 15 * 60 * 1000 }),
+  accounts.verifyCode);
+
+app.post('/api/auth/google', authGuard({ perIp: 20, perEmail: 20, windowMs: 15 * 60 * 1000 }),
+  accounts.googleAuth);
 
 /* What the client needs before it can render the auth screen. Public by
    design: a Google client id is not a secret — it is embedded in every page
@@ -2286,6 +2477,52 @@ app.post('/api/stripe/webhook', async (req, res) => {
   catch (e) { console.error('webhook handler:', e.message); }
   res.json({ received: true });
 });
+
+/* ── image retention sweep ────────────────────────────────────────────────
+   Images had no expiry and no deletion path, so the free-tier database
+   filled and uploads began failing with a message that reads like a camera
+   problem. Now they expire, and something has to actually collect them.
+
+   Run once shortly after boot (delayed so it never competes with the first
+   real requests on a cold start) and daily after that. unref() so a pending
+   timer never holds the process open. Failures are logged and ignored — a
+   sweep that cannot run is a housekeeping problem, not a reason to take the
+   app down. */
+async function runImageSweep(reason) {
+  try {
+    const n = await images.sweep();
+    if (n) console.log(`  · image sweep (${reason}): removed ${n} expired`);
+  } catch (e) {
+    console.error('[image sweep]', e.message);
+  }
+}
+setTimeout(() => runImageSweep('startup'), 60_000).unref?.();
+setInterval(() => runImageSweep('daily'), 24 * 60 * 60 * 1000).unref?.();
+
+/* ══════════════════ last line of defence ═══════════════════════════════════
+   A single-process server with no supervisor inside the container dies on any
+   unhandled throw, and every customer mid-scan dies with it. These do not make
+   the underlying bug go away — they turn "one bad request logs everybody out"
+   into "one bad request is logged and everyone carries on".
+
+   Both are deliberately non-exiting. The conventional advice is to log and
+   exit on uncaughtException because process state may be corrupt; that advice
+   assumes a supervisor restarts you in milliseconds. On Render's free tier a
+   restart is a 30-60 second cold start during which Stripe webhooks are
+   dropped, so staying up in a degraded state is the less expensive failure.
+   Revisit if this ever runs somewhere with fast, automatic restarts. */
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason?.stack || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.stack || err);
+});
+
+/* node-postgres emits 'error' on the Pool when an IDLE connection drops. Neon
+   and Supabase both close idle connections as normal behaviour, and an
+   unhandled 'error' event is a hard process kill — so this is not a rare edge
+   case, it is a scheduled crash every few minutes of quiet. */
+store.onPoolError?.(e => console.error('[pg pool]', e.message));
 
 /* ==========================================================================
    Startup
@@ -2326,6 +2563,37 @@ server.listen(PORT, () => {
     console.error('    Accounts would not survive a restart, so every user would be');
     console.error('    signed out and every eBay connection lost. Set DATABASE_URL.\n');
     process.exit(1);
+  }
+
+  /* ── selling what does not work ─────────────────────────────────────────
+     Every paid plan lists automatic eBay listing as a feature. Pinned to
+     sandbox, the entire flow reports success and publishes nothing to real
+     eBay — the customer's item never appears, and they find out days later
+     from a buyer who never arrives. That failure is invisible from inside the
+     app, which is precisely why it needs to be caught here instead.
+
+     Deliberately fatal rather than a warning: a warning in a Render log at
+     3am is a thing nobody reads, and the cost of getting this wrong is
+     refunds and a reputation. Two honest ways past it — set EBAY_ENV to
+     production, or take auto-listing out of the plan features until it
+     works. */
+  const sellsAutoListing = Object.values(accounts.PLANS || {}).some(p => p.price > 0 && p.autoList);
+  if (IS_PROD && sellsAutoListing && ebayConfigured() && EBAY_SANDBOX) {
+    console.error('\n  ✗ REFUSING TO RUN: selling auto-listing while eBay is in sandbox.');
+    console.error('    Publishing will report success and post nothing to real eBay.');
+    console.error('    Set EBAY_ENV=production, or remove auto-listing from the paid');
+    console.error('    plan features in accounts.mjs until the production keys exist.\n');
+    process.exit(1);
+  }
+
+  /* The softer half: credentials missing entirely. Not fatal, because the app
+     degrades honestly here — it tells the user eBay needs setting up rather
+     than pretending to publish — but it does mean anyone paying for a plan is
+     paying for a feature they cannot use yet. */
+  if (IS_PROD && sellsAutoListing && !ebayConfigured()) {
+    console.warn('\n  ⚠  Paid plans advertise eBay auto-listing, but EBAY_CLIENT_ID,');
+    console.warn('     EBAY_CLIENT_SECRET or EBAY_REDIRECT_URI_NAME is missing.');
+    console.warn('     Customers can pay for a feature that cannot run.\n');
   }
 
   /* Without an explicit secret, sessions are signed with a hash of
