@@ -1628,6 +1628,21 @@ function tokenClaims(t) {
 let meConfirmed = false;
 let serverWaking = false;
 
+/* Whether this browser arrived carrying ANY token string, captured before
+   optimisticSession below is allowed to throw a malformed one away.
+
+   This exists to keep the signed-out data wipe safe. "No token at all" is a
+   reliable signal that nobody is signed in. "A token that this build could
+   not parse" is not the same thing — a future change to the token format, or
+   any unexpected throw inside tokenClaims, would make every existing token
+   look absent and silently erase every user's inventory at once, with no
+   server copy to restore from. That is a bad enough outcome to design
+   against even though it is unlikely.
+
+   So a token we cannot read is left for the server to rule on: a 401 wipes,
+   an unreachable server does not. */
+const ARRIVED_WITH_TOKEN = !!token;
+
 (function optimisticSession() {
   const c = tokenClaims(token);
   if (!c) { if (token) setToken(null); return; }
@@ -2122,11 +2137,13 @@ async function refreshMe({ soft = false } = {}) {
       if (r.status === 401 && j.code === 'invalid_token') {
         authRejected = !!token;
         setToken(null);
-        store('meCache', null);
         me = { signedIn: false, plan: 'free', scansUsed: j.scansUsed || 0,
                scansLimit: j.scansLimit ?? 3, scansLeft: j.scansLeft ?? 3,
                unlimited: false, autoList: false };
         meConfirmed = true; serverWaking = false;
+        /* A definitive rejection from the server — the session is genuinely
+           over, not merely unreachable. Same treatment as signing out. */
+        enforceSignedOutPrivacy({ reason: 'session expired' });
         break;
       }
 
@@ -2401,6 +2418,42 @@ const PERSONAL_KEYS = [
   'shipEst', 'strategy', 'tone'
 ];
 
+/* ── signed out means no data, however you got here ───────────────────────
+   Clearing on the sign-out *action* was only half the job. It did nothing
+   for the two states that actually leave someone looking at data that is not
+   theirs:
+
+     · storage written before this rule existed, still sitting there
+     · a session that expired on its own rather than being signed out of
+
+   Both end with the home screen cheerfully reporting "2 items · $378" to
+   somebody the app knows is not signed in. So the rule is enforced on every
+   boot as well, not just on the way out.
+
+   The one thing this must never do is fire on a cold start. Render's free
+   tier sleeps, /api/me fails for fifteen seconds, and wiping a signed-in
+   user's inventory because their server was waking up would be catastrophic
+   and unrecoverable — there is no server copy to restore from. So this runs
+   ONLY on a definitive answer: no token at all, or the server explicitly
+   saying the token is invalid. Never on a timeout, a 503, or a network
+   error. */
+function clearPersonalData() {
+  PERSONAL_KEYS.forEach(k => store(k, null));
+  inventory = [];
+  current = null; photos = []; listings = {};
+  viewingItem = null; viewingExample = false;
+}
+
+function enforceSignedOutPrivacy({ reason }) {
+  /* Whether anything was actually there is only used to decide if this is
+     worth a log line — the clear itself runs unconditionally, so a key added
+     later can never be missed because some other key happened to be empty. */
+  const hadSomething = inventory.length > 0 || !!store('lastEmail') || !!store('shipZip');
+  clearPersonalData();
+  if (hadSomething) console.info('[privacy] cleared local data —', reason);
+  return hadSomething;
+}
+
 function askSignOut() {
   const n = inventory.length;
   const worth = invTotals(inventory).open;
@@ -2429,10 +2482,7 @@ function signOut() {
   /* deviceId deliberately survives: it is a random string, carries nothing
      personal, and is what the server counts anonymous scans against. Clearing
      it would hand out a fresh free allowance on every sign-out. */
-  PERSONAL_KEYS.forEach(k => store(k, null));
-
-  inventory = [];
-  current = null; photos = []; listings = {}; viewingItem = null; viewingExample = false;
+  clearPersonalData();
   meConfirmed = true; serverWaking = false;
   me = { signedIn:false, plan:'free', scansUsed:0, scansLimit:3, scansLeft:3, unlimited:false, autoList:false };
 
@@ -4305,8 +4355,29 @@ function showSheet(kind, data = {}) {
       <button class="btn" style="width:100%" onclick="submitEbayDetails()">Continue publishing</button>
       <button class="btn btn-ghost" style="width:100%;margin-top:9px" onclick="closeSheet()">Not now</button>`;
   } else if (kind === 'privacy') {
+    /* This used to say photos were "not stored by either", which was not
+       true — they are written to the database so listings can point at them,
+       and eBay has to be able to fetch them from a public address or it will
+       not accept the listing. A privacy notice that says the comfortable
+       thing instead of the accurate one is worse than no notice at all, so
+       this one says what actually happens, including the parts that are not
+       flattering. Keep it that way. */
     b.innerHTML = `<h3>Privacy</h3>
-      <p>Your photos go to this app's server, are forwarded once to Anthropic for analysis, and are not stored by either. Your scan history lives on this device. Your email is used only to hold your plan and nothing else.</p>
+      <p><b style="color:var(--fg)">Your photos.</b> They're sent to this app's server and forwarded once to
+         Anthropic for analysis. Anthropic doesn't keep them. We do — photos are stored so your
+         listings have something to point at, and they sit at a public web address, because eBay
+         has to be able to fetch them or it won't accept the listing. Anyone with the exact link
+         can view one, though the links aren't published anywhere or guessable.</p>
+      <p><b style="color:var(--fg)">Your scans and inventory.</b> These live in this browser only. We never
+         receive them, which also means we can't restore them — clearing your browser data or
+         switching devices loses them.</p>
+      <p><b style="color:var(--fg)">Your account.</b> On our server: your email, your plan, your Stripe
+         customer and subscription IDs, and your scan count. If you connect eBay, we store an
+         encrypted access token — never your eBay password.</p>
+      <p><b style="color:var(--fg)">Signing out</b> erases everything personal from this browser, including
+         your saved items.</p>
+      <p style="font-size:12.5px;color:var(--dim)">Want your photos or account deleted? Email us
+         from the support page and we'll do it.</p>
       <button class="btn btn-ghost" onclick="closeSheet()">Close</button>`;
   } else if (kind === 'deleteItem') {
     const live = Object.entries(data.urls || {});
@@ -4486,6 +4557,23 @@ function confirmDelete() {
   if (!it) return;
 
   const wasWorth = Number(it.price) || 0;
+
+  /* Ask the server to drop the hosted copies too. Removing the row locally
+     while the photos stay in the database for six months is exactly the gap
+     the privacy notice used to paper over. Fire-and-forget on purpose: the
+     user's item is gone from their inventory either way, and a failed
+     cleanup should not turn into an error message about a delete that, from
+     where they are standing, plainly worked. The retention sweep collects
+     anything this misses. */
+  const hosted = (it.data?.photos || []).filter(u => /^https?:\/\//i.test(u));
+  if (hosted.length && me.signedIn) {
+    fetch(API + '/api/images/delete', {
+      method: 'POST',
+      headers: authHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({ urls: hosted })
+    }).catch(() => {});
+  }
+
   inventory = inventory.filter(i => i.id !== it.id);
   store('inventory', inventory);
 
@@ -5183,6 +5271,16 @@ function armReveals(screenId) {
 }
 
 (async function boot() {
+  /* Before a single pixel of personal data can reach the screen. No token at
+     all means no session — a definitive answer available synchronously, with
+     no server round trip and therefore no cold-start risk. This is what stops
+     a signed-out browser from opening on "2 items · $378".
+
+     ARRIVED_WITH_TOKEN rather than `token`, so a token that merely failed to
+     parse is left to the server to rule on instead of being treated as
+     absent. See the note where it is defined. */
+  if (!ARRIVED_WITH_TOKEN) enforceSignedOutPrivacy({ reason: 'no session on load' });
+
   renderPhotoGrid();
   renderNav();
 
@@ -5204,6 +5302,14 @@ function armReveals(screenId) {
   /* soft: retries through a cold start instead of concluding "signed out" the
      first time a sleeping instance fails to answer. */
   await Promise.all([refreshMe({ soft: true }), loadPlans(), loadAuthConfig()]);
+
+  /* Backstop for the case the boot check can't see: a token was present, the
+     server answered properly, and the answer was "not signed in". Guarded on
+     meConfirmed && !serverWaking so a cold start can never trigger it. */
+  if (meConfirmed && !serverWaking && !me.signedIn) {
+    enforceSignedOutPrivacy({ reason: 'server confirmed signed out' });
+  }
+
   go('home', { replace: true });
 })();
 
