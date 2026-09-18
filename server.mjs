@@ -175,6 +175,58 @@ function authGuard({ perIp, perEmail, windowMs }) {
   };
 }
 
+/* ── upload budget ────────────────────────────────────────────────────────
+   POST /api/images already requires a signed-in user, which was treated as
+   sufficient. It is not: an account costs one email address, and the route
+   then accepted 12 photos of 6MB each, as often as it was called, forever.
+   One free account could fill the image store — and on the Postgres driver,
+   that is the same disk the accounts live on.
+
+   Budgeting on IMAGES rather than on requests is the point: a per-request
+   limit is trivially defeated by sending twelve at a time, which is exactly
+   what the client already does. Two windows, because they stop different
+   things — the short one stops a burst, the long one stops a slow drip that
+   never trips the short one. Keyed on the account, not the IP, since the
+   route is authenticated and an IP key would punish shared networks.
+
+   In memory on purpose. Images are stored against a random id with no owner
+   column (see the note on /api/images/delete), so there is nowhere to put a
+   durable per-user count without a schema change. A counter that resets on
+   deploy is a great deal better than no counter, and this is sized so that
+   real use never reaches it. */
+const uploadBuckets = new Map();
+
+const UPLOAD_BURST = { max: 60,  windowMs: 15 * 60 * 1000 };  // 5 full items
+const UPLOAD_DAILY = { max: 400, windowMs: 24 * 60 * 60 * 1000 };
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, b] of uploadBuckets) if (now > b.reset) uploadBuckets.delete(k);
+}, 30 * 60 * 1000).unref?.();
+
+/* Charges `n` images against both windows. Checks both BEFORE charging
+   either, so a request refused by the daily cap does not also burn burst
+   allowance it never got to use. */
+function uploadBudget(key, n) {
+  const now = Date.now();
+
+  const take = (suffix, { max, windowMs }) => {
+    const k = `${suffix}:${key}`;
+    const b = uploadBuckets.get(k) || { n: 0, reset: now + windowMs };
+    if (now > b.reset) { b.n = 0; b.reset = now + windowMs; }
+    return { k, b, max, would: b.n + n > max, retryInSec: Math.ceil((b.reset - now) / 1000) };
+  };
+
+  const burst = take('u15', UPLOAD_BURST);
+  const daily = take('u24', UPLOAD_DAILY);
+
+  const tripped = burst.would ? burst : daily.would ? daily : null;
+  if (tripped) return { ok: false, retryInSec: tripped.retryInSec };
+
+  for (const t of [burst, daily]) { t.b.n += n; uploadBuckets.set(t.k, t.b); }
+  return { ok: true };
+}
+
 const server = http.createServer(async (req, rawRes) => {
   /* This line used to sit outside any try/catch, which made it a one-packet
      remote kill switch: Node's HTTP parser accepts a Host header that WHATWG
@@ -1332,6 +1384,23 @@ app.post('/api/images', async (req, res) => {
     const list = Array.isArray(req.body?.images) ? req.body.images : [];
     if (!list.length) return res.status(400).json({ error: 'No images given.' });
 
+    /* Charge the budget for what will actually be stored — the loop below
+       slices to MAX_PER_ITEM, so billing the full list would refuse honest
+       callers for photos the server was never going to keep. Owners are
+       exempt for the same reason they scan without limit. */
+    const wanted = Math.min(list.length, images.MAX_PER_ITEM);
+    if (!accounts.isOwner(user)) {
+      const budget = uploadBudget(String(user.email).toLowerCase(), wanted);
+      if (!budget.ok) {
+        const mins = Math.ceil(budget.retryInSec / 60);
+        return res.status(429).json({
+          code: 'UPLOAD_RATE_LIMIT',
+          error: `That's a lot of photos in a short time. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`,
+          retryInSeconds: budget.retryInSec
+        });
+      }
+    }
+
     /* trim() before anything else: a trailing space in the PUBLIC_URL env var
        survives into every image URL and eBay rejects the lot with "Invalid
        value for imageUrl", pointing at the photo rather than at the config. */
@@ -2409,8 +2478,24 @@ app.get('/api/auth/whoami', async (req, res) => {
   res.json(out);
 });
 
-app.get('/api/auth/diagnose', async (_req, res) => {
+/* Owner-only, and deliberately a 404 rather than a 401 for everyone else.
+
+   This endpoint used to be open to the internet. Two problems with that, and
+   the second is the expensive one. It reports the mail provider, the
+   from-address, whether the Gmail credentials are set and the app password's
+   exact length — a free map of the mail configuration for anyone probing for
+   a way to send as this domain. And every single hit ran verifyMailLogin(),
+   a real SMTP login against the mail provider: a loop over this URL is an
+   unauthenticated way to hammer the mail account until the provider rate
+   limits or locks it, which takes sign-in emails down with it.
+
+   The check runs before anything else so the mail login never fires for a
+   caller who is not the owner. */
+app.get('/api/auth/diagnose', async (req, res) => {
  try {
+  const who = await accounts.currentUser(req);
+  if (!accounts.isOwner(who)) return res.status(404).json({ error: 'Not found' });
+
   const out = {
     provider: accounts.mailProvider(),
     from: accounts.mailFrom(),
