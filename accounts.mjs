@@ -70,12 +70,22 @@ export const PLANS = {
     scans: 100,
     autoList: true,
     blurb: 'For people doing this for real.',
+    /* Three lines used to live here that the code could not back:
+       "Unlimited automatic listings" (contradicted by scans:100 directly
+       above it — listings are capped with scans, because every listing comes
+       from a scan), "Priority analysis queue" (there is no queue anywhere in
+       this codebase; analysis is a straight inline call) and "Full sales and
+       margin history" (no such view exists, and nothing gates history by
+       plan). Selling a card against features that do not exist is the kind
+       of thing that ends in chargebacks, so the list now describes only what
+       Pro actually does. If those features get built, the lines come back —
+       not before. */
     features: [
-      '100 items a month',
-      'Unlimited automatic listings',
-      'Priority analysis queue',
-      'Full sales and margin history',
-      'Everything in Starter'
+      '100 items a month — ten times Starter',
+      'Automatic eBay listing included',
+      'No per-listing fee, ever',
+      'Condition and authenticity reports',
+      'Inventory tracking'
     ]
   }
 };
