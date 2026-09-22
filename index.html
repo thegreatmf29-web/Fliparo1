@@ -2615,11 +2615,17 @@ async function openPortal() {
 /* The moment that sells the product: they have a valuation, now offer the
    one-tap listing. Shown right after a scan rather than buried in a menu. */
 function showPaywall(kind) {
-  const starter = PLANS.find(p => p.id === 'starter') || { priceLabel:'$3.99', name:'Starter' };
+  /* Fallback only covers the window before /api/plans answers. Every number
+     below comes off this object rather than being typed into the markup —
+     the item count used to be written out as "10 items a month" in three
+     places here, which meant a change to Starter's cap in accounts.mjs
+     silently left the upsell advertising the old one. */
+  const starter = PLANS.find(p => p.id === 'starter') || { priceLabel:'$9.99', name:'Starter', scans:50 };
+  const starterItems = `${starter.scans} items a month`;
   const b = document.getElementById('sheetBody');
   if (kind === 'listing') {
     /* Name the item and its own number. "List it automatically" is a feature;
-       "your Air Max nets $58, this costs $3.99" is the same sentence with the
+       "your Air Max nets $58, this costs $9.99" is the same sentence with the
        arithmetic already done, and it is the arithmetic that decides. */
     const nm  = current?.productName;
     const net = current ? Math.max(0, netFromPrice('ebay', priceFor(current)) - shipEst() - (Number(current.buyPrice) || 0)) : 0;
@@ -2629,7 +2635,7 @@ function showPaywall(kind) {
         ? `This one clears about <b style="color:var(--grn)">${money(Math.round(net))}</b>. Starter is ${esc(starter.priceLabel)} a month and publishes it straight to eBay — title, description, condition, photos, price — without you touching a form.`
         : `Starter publishes it straight to eBay — title, description, condition, photos, price — without you touching a form.`}</p>
       <div class="card tight" style="margin-bottom:16px">
-        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 items a month</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>${esc(starterItems)}</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Automatic eBay listing, no per-listing fee</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Inventory tracking</span></div>
       </div>
@@ -2648,9 +2654,9 @@ function showPaywall(kind) {
   } else if (kind === 'quota') {
     b.innerHTML = `
       <h3>Keep going for ${esc(starter.priceLabel)} a month</h3>
-      <p>Ten items a month, automatic eBay listing, and inventory tracking. One decent flip covers most of a year.</p>
+      <p>${esc(starterItems)}, automatic eBay listing, and inventory tracking. One decent flip covers several months.</p>
       <div class="card tight" style="margin-bottom:16px">
-        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>10 items a month</span></div>
+        <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>${esc(starterItems)}</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>One-tap eBay listing, no per-listing fee</span></div>
         <div class="plan-feat"><svg viewBox="0 0 24 24"><path d="M4 12.5l5.5 5.5L20 7"/></svg><span>Cancel any time</span></div>
       </div>
@@ -3050,8 +3056,8 @@ function renderSellNote(net) {
   if (me.autoList || me.unlimited) { el.innerHTML = ''; return; }
 
   const starter = PLANS.find(p => p.id === 'starter');
-  const price = starter?.price || 3.99;
-  const label = starter?.priceLabel || '$3.99';
+  const price = starter?.price || 9.99;
+  const label = starter?.priceLabel || '$9.99';
   const months = Math.floor((net || 0) / price);
 
   el.innerHTML = `<div class="sell-note">

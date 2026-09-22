@@ -46,15 +46,15 @@ export const PLANS = {
   starter: {
     id: 'starter',
     name: 'Starter',
-    price: 3.99,
-    priceLabel: '$3.99',
-    priceYear: 39.99,
-    scans: 10,
+    price: 9.99,
+    priceLabel: '$9.99',
+    priceYear: 99.99,
+    scans: 50,
     autoList: true,
     popular: true,
     blurb: 'For the weekend flipper.',
     features: [
-      '10 items a month',
+      '50 items a month',
       'Automatic eBay listing included',
       'No per-listing fee, ever',
       'Condition and authenticity reports',
@@ -64,14 +64,14 @@ export const PLANS = {
   pro: {
     id: 'pro',
     name: 'Pro',
-    price: 9.99,
-    priceLabel: '$9.99',
-    priceYear: 99.99,
-    scans: 100,
+    price: 29.99,
+    priceLabel: '$29.99',
+    priceYear: 299.99,
+    scans: 250,
     autoList: true,
     blurb: 'For people doing this for real.',
     /* Three lines used to live here that the code could not back:
-       "Unlimited automatic listings" (contradicted by scans:100 directly
+       "Unlimited automatic listings" (contradicted by scans:250 directly
        above it — listings are capped with scans, because every listing comes
        from a scan), "Priority analysis queue" (there is no queue anywhere in
        this codebase; analysis is a straight inline call) and "Full sales and
@@ -81,7 +81,7 @@ export const PLANS = {
        Pro actually does. If those features get built, the lines come back —
        not before. */
     features: [
-      '100 items a month — ten times Starter',
+      '250 items a month — ten times Starter',
       'Automatic eBay listing included',
       'No per-listing fee, ever',
       'Condition and authenticity reports',
@@ -332,7 +332,10 @@ export async function checkScanAllowed(req) {
       ok: false, user: null,
       status: 402,
       code: 'signup',
-      error: 'You have used your free scan. Create an account to keep going.',
+      /* Counted from the plan, not written out. This line said "your free
+         scan" while the free allowance was three, so the first two hits of
+         the wall described a limit the visitor had not reached. */
+      error: `You've used all ${PLANS.free.scans} free scans. Create an account to keep going.`,
       quota: { plan: 'free', scansUsed: q.scansUsed, scansLimit: PLANS.free.scans, scansLeft: 0, autoList: false }
     };
   }
@@ -351,7 +354,9 @@ export async function consumeScan(ctx) {
   }
 }
 
-/* Auto-listing is the thing the $3.99 tier actually unlocks. */
+/* Auto-listing is the thing the Starter tier actually unlocks. Deliberately
+   not written as a price — a comment naming a dollar figure goes stale the
+   first time pricing moves, and this one already did. */
 export async function checkListingAllowed(req) {
   const user = await currentUser(req);
   if (!user) return { ok: false, status: 402, code: 'signup', error: 'Create an account to publish listings automatically.' };

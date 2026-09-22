@@ -94,21 +94,31 @@ Email: brevo (Fliparo <you@example.com>)
 ✓ Mail login verified
 ```
 
-Then open `https://your-app.onrender.com/api/auth/diagnose`. It reports the
+Then open `https://your-app.onrender.com/api/auth/diagnose` **while signed in on
+an owner account** (an address listed in `OWNER_EMAILS`). It reports the
 provider, whether the transport is SMTP, and the exact reason for any failure.
-It never returns credentials, so it is safe to open in a browser.
+To anyone else it answers 404 — it used to be public, but it maps out the mail
+configuration and every hit runs a real mail login, which made it a free way to
+hammer the mail account until sign-in emails stopped arriving.
 
 ## 2. Stripe products
 
 In the [Stripe dashboard](https://dashboard.stripe.com), keep **Test mode ON**
 for now (toggle, top right).
 
-Create two products under **Product catalogue → Add product**:
+Under **Product catalogue → Add product**, create two products, each with **two prices** — a monthly and a yearly. Add the
+yearly price to the same product with **Add another price**; do not create a
+separate "Fliparo Starter Annual" product. Entitlement is keyed off the base
+plan, so one product carrying both intervals is what the code expects.
 
 | Product | Price | Billing |
 |---|---|---|
-| Fliparo Starter | 3.99 USD | Recurring, monthly |
-| Fliparo Pro | 9.99 USD | Recurring, monthly |
+| Fliparo Starter | 9.99 USD | Recurring, monthly |
+| Fliparo Starter | 99.99 USD | Recurring, yearly |
+| Fliparo Pro | 29.99 USD | Recurring, monthly |
+| Fliparo Pro | 299.99 USD | Recurring, yearly |
+
+The yearly prices are ten months' money for twelve months of service.
 
 After saving each one, click into it and copy the **price ID** — it starts with
 `price_`, *not* `prod_`. This is the single most common mistake here; a product
@@ -118,9 +128,15 @@ Then in Render set:
 
 ```
 STRIPE_SECRET_KEY     sk_test_…      (Developers → API keys)
-STRIPE_PRICE_STARTER  price_…        (from Starter)
-STRIPE_PRICE_PRO      price_…        (from Pro)
+STRIPE_PRICE_STARTER       price_…   (Starter, monthly)
+STRIPE_PRICE_PRO           price_…   (Pro, monthly)
+STRIPE_PRICE_STARTER_YEAR  price_…   (Starter, yearly)
+STRIPE_PRICE_PRO_YEAR      price_…   (Pro, yearly)
 ```
+
+The two `_YEAR` variables are optional. The yearly toggle only appears on the
+pricing page once its price ID exists, so leaving them unset hides annual
+billing rather than offering a checkout that would fail.
 
 ---
 
@@ -155,7 +171,7 @@ With test mode still on:
 2. Go to **Plan → Get Starter**.
 3. Pay with Stripe's test card: `4242 4242 4242 4242`, any future expiry, any CVC.
 4. You land back in the app. Within a second or two the plan should read
-   **Starter** and your scan allowance should jump to 10.
+   **Starter** and your scan allowance should jump to 50.
 
 If it stays on Free: open Stripe → Developers → Webhooks → your endpoint and
 look at the delivery attempts. A 400 there means the signing secret is wrong. No
@@ -184,9 +200,9 @@ Limits live on the server, in `accounts.mjs`. The browser is told what the
 limits are so the interface can be honest about them, but it is never trusted —
 editing anything in devtools buys nothing.
 
-| | Free | Starter $3.99 | Pro $9.99 |
+| | Free | Starter $9.99 | Pro $29.99 |
 |---|---|---|---|
-| Scans per month | 1 | 10 | 100 |
+| Scans per month | 3 | 50 | 250 |
 | Automatic eBay listing | — | yes | yes |
 | Inventory | — | yes | yes |
 
@@ -205,8 +221,8 @@ charges — update the price in Stripe too, or the two will disagree.
 
 ## Costs to keep an eye on
 
-Each scan costs you roughly a cent in Anthropic credit. At $3.99 for 10 scans
-your margin is comfortable; at $9.99 for 100 scans a user who genuinely burns
-all 100 costs you about $1. Fine — but `DAILY_SCAN_CEILING` in Render is the
+Each scan costs you roughly a cent in Anthropic credit. At $9.99 for 50 scans
+your margin is wide; at $29.99 for 250 scans a Pro user who genuinely burns
+all 250 costs you about $2.50. Fine — but `DAILY_SCAN_CEILING` in Render is the
 backstop that stops a bug or a bot emptying your Anthropic balance overnight.
 Leave it set.
