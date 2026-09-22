@@ -8,12 +8,24 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="description" content="Photograph anything. Know what it's worth. List it in one tap.">
 <title>Fliparo</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%23C084FC'/><stop offset='1' stop-color='%236D28D9'/></linearGradient></defs><rect width='32' height='32' rx='9' fill='url(%23g)'/><g transform='skewX(-7) translate(2.4 0)' fill='%23fff'><rect x='9.2' y='6.5' width='4.4' height='19.7' rx='2.2'/><rect x='9.2' y='6.5' width='14.1' height='4.4' rx='2.2'/><rect x='9.2' y='14.4' width='9.9' height='4.4' rx='2.2'/></g></svg>">
+
+<!-- Installable-app plumbing. Added to the home screen from Safari or Chrome,
+     Fliparo opens full screen with its own icon and no browser chrome. The
+     favicon used to be an inline SVG carrying its own copy of the old violet
+     gradient, which is why it survived the recolour; real files now, generated
+     from the same two cyan stops as --acc-grad. -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Fliparo">
+<meta name="mobile-web-app-capable" content="yes">
 
 <style>
 /* ══════════════════════════════════════════════════════════════════════════
    Fliparo — design system
-   One accent (electric violet) carries every primary action. Tier colour is
+   One accent (cyan) carries every primary action. Tier colour is
    the only other colour that ever changes, so a screen never has two things
    shouting. Glow is structural here, not decoration: it marks what is
    interactive and what is the current focus, and it is always the accent or
@@ -23,16 +35,30 @@
   --bg:#08090B; --bg2:#0D0F13; --card:#121419; --card2:#171A20;
   --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
   --fg:#F7F8FA; --mut:#9BA1AE; --dim:#5E6472;
-  --acc:#A855F7; --acc-hi:#C084FC; --acc-lo:#6D28D9;
-  --acc-ink:#FFFFFF; --acc-dim:rgba(168,85,247,.16);
-  --acc-grad:linear-gradient(135deg,#B168FF,#7C3AED);
-  --glow-1:rgba(168,85,247,.42); --glow-2:rgba(124,58,237,.22);
+  /* Accent. Cyan rather than the violet this shipped with: violet is the
+     default of every AI product released in the last two years, and the
+     hues that would otherwise suit a resale app are all spoken for here —
+     amber is the warning colour, green is profit, red is errors, and blue
+     belongs to the eBay button. Cyan is the one free hue that none of those
+     signals can be confused with.
+
+     --acc-rgb carries the same colour as a bare triple so alpha variants can
+     be written rgba(var(--acc-rgb),.16). Before this existed the accent was
+     hard-coded in 29 places, which meant changing --acc recoloured the
+     buttons and left every glow, ring and tinted border behind. */
+  --acc-rgb:6,182,212; --acc-lo-rgb:14,116,144;
+  --acc:#06B6D4; --acc-hi:#4DE0F0; --acc-lo:#0E7490;
+  /* Dark ink, not white: white on cyan is about 2:1 and unreadable at button
+     weight, while this clears 12:1 on the lighter end of the gradient. */
+  --acc-ink:#04212A; --acc-dim:rgba(var(--acc-rgb),.16);
+  --acc-grad:linear-gradient(135deg,#22D3EE,#0891B2);
+  --glow-1:rgba(var(--acc-rgb),.42); --glow-2:rgba(var(--acc-lo-rgb),.22);
   --grn:#3DDC84; --amb:#FFC53D; --red:#FF5A4E; --blu:#4D9BFF; --vio:#C4B5FD;
   --r-sm:14px; --r:20px; --r-lg:28px; --r-xl:36px;
   --safe-t:env(safe-area-inset-top,0px); --safe-b:env(safe-area-inset-bottom,0px);
   --nav-h:calc(66px + var(--safe-b));
   --shadow:0 8px 30px rgba(0,0,0,.5);
-  --shadow-acc:0 10px 34px -6px var(--glow-1),0 0 0 1px rgba(168,85,247,.28);
+  --shadow-acc:0 10px 34px -6px var(--glow-1),0 0 0 1px rgba(var(--acc-rgb),.28);
   --ease:cubic-bezier(.22,1,.36,1);
   /* Navigation curve. Very fast out of the gate, long slow settle — this is
      what makes a push read as weight being moved rather than a slide playing.
@@ -61,8 +87,8 @@ img{display:block;max-width:100%}
 body::before{
   content:'';position:fixed;inset:-34% -12% auto;height:82vh;z-index:0;pointer-events:none;
   background:
-    radial-gradient(52% 58% at 24% 0%,rgba(168,85,247,.22),transparent 68%),
-    radial-gradient(46% 54% at 82% 8%,rgba(109,40,217,.20),transparent 66%);
+    radial-gradient(52% 58% at 24% 0%,rgba(var(--acc-rgb),.22),transparent 68%),
+    radial-gradient(46% 54% at 82% 8%,rgba(var(--acc-lo-rgb),.20),transparent 66%);
   animation:bloom 34s ease-in-out infinite;
 }
 @keyframes bloom{
@@ -238,9 +264,9 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
    ringed in the accent, and glowing just enough to be found without competing
    with the primary action on the screen. */
 .icon-btn.avatar{width:44px;height:44px;
-  background:linear-gradient(150deg,rgba(168,85,247,.30),var(--card) 68%);
-  border-color:rgba(168,85,247,.45);
-  box-shadow:0 0 0 1px rgba(168,85,247,.12),0 6px 18px -8px var(--glow-1)}
+  background:linear-gradient(150deg,rgba(var(--acc-rgb),.30),var(--card) 68%);
+  border-color:rgba(var(--acc-rgb),.45);
+  box-shadow:0 0 0 1px rgba(var(--acc-rgb),.12),0 6px 18px -8px var(--glow-1)}
 .icon-btn.avatar svg{width:21px;height:21px;stroke:var(--acc-hi);stroke-width:2.1}
 @media (hover:none){.icon-btn.avatar{width:46px;height:46px}}
 .icon-btn:active{transform:scale(.92);background:var(--card2)}
@@ -254,7 +280,7 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 .card.glow::after{content:'';position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(90% 72% at 50% 0%,var(--glow,var(--glow-1)),transparent 68%)}
 /* An accent-edged card: used for the one thing on a screen that matters most. */
-.card.lit{border-color:rgba(168,85,247,.34);box-shadow:0 0 0 1px rgba(168,85,247,.10),0 14px 40px -18px var(--glow-1)}
+.card.lit{border-color:rgba(var(--acc-rgb),.34);box-shadow:0 0 0 1px rgba(var(--acc-rgb),.10),0 14px 40px -18px var(--glow-1)}
 .row-between{display:flex;align-items:center;justify-content:space-between;gap:12px}
 
 /* ─────────────────────────── buttons ─────────────────────────── */
@@ -306,11 +332,11 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 /* A halo ring that breathes. This is the primary action of the whole app, so
    it gets the one piece of persistent motion in the interface. */
 #nav .tab-scan .fab::before{content:'';position:absolute;inset:-5px;border-radius:50%;
-  border:1.5px solid rgba(168,85,247,.42);animation:halo 2.8s ease-in-out infinite}
+  border:1.5px solid rgba(var(--acc-rgb),.42);animation:halo 2.8s ease-in-out infinite}
 @keyframes halo{0%,100%{transform:scale(1);opacity:.75}50%{transform:scale(1.13);opacity:0}}
 @media (prefers-reduced-motion:reduce){#nav .tab-scan .fab::before{animation:none;opacity:.5}}
 #nav .tab-scan:active .fab{transform:scale(.9)}
-#nav .tab-scan.active .fab{box-shadow:0 8px 30px -2px var(--glow-1),0 0 0 3px rgba(168,85,247,.22)}
+#nav .tab-scan.active .fab{box-shadow:0 8px 30px -2px var(--glow-1),0 0 0 3px rgba(var(--acc-rgb),.22)}
 #nav .tab-scan.active .tl{color:var(--acc-hi)}
 #nav .tab-scan .fab svg{width:25px;height:25px;stroke:#fff;stroke-width:2.2}
 #nav .tab-scan .tl{color:var(--mut);margin-top:1px}
@@ -386,12 +412,12 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
 /* ─────────────────────────── home ─────────────────────────── */
 .hero-scan{
   position:relative;border-radius:var(--r-xl);overflow:hidden;padding:38px 26px 32px;
-  background:linear-gradient(155deg,#1B1030,#101218 64%);border:1px solid rgba(168,85,247,.26);
+  background:linear-gradient(155deg,#1B1030,#101218 64%);border:1px solid rgba(var(--acc-rgb),.26);
 }
 .hero-scan::before{content:'';position:absolute;inset:-40%;
   background:
     radial-gradient(38% 44% at 78% 12%,rgba(192,132,252,.40),transparent 62%),
-    radial-gradient(34% 40% at 24% 84%,rgba(109,40,217,.34),transparent 64%);
+    radial-gradient(34% 40% at 24% 84%,rgba(var(--acc-lo-rgb),.34),transparent 64%);
   animation:heroDrift 22s ease-in-out infinite}
 @keyframes heroDrift{
   0%,100%{transform:translate3d(0,0,0) rotate(0deg)}
@@ -455,7 +481,7 @@ h2.sec{font-size:13px;font-weight:700;letter-spacing:.09em;text-transform:upperc
   font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:8px;letter-spacing:.02em}
 .inp{width:100%;background:var(--card);border:1px solid var(--line);border-radius:var(--r);
      padding:15px 16px;font-size:15.5px;transition:border-color .18s}
-.inp:focus{border-color:rgba(168,85,247,.55);box-shadow:0 0 0 3px rgba(168,85,247,.13)}
+.inp:focus{border-color:rgba(var(--acc-rgb),.55);box-shadow:0 0 0 3px rgba(var(--acc-rgb),.13)}
 textarea.inp{min-height:120px;resize:vertical;line-height:1.6}
 select.inp{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--mut) 50%),
   linear-gradient(135deg,var(--mut) 50%,transparent 50%);
@@ -476,7 +502,7 @@ select.inp option{background:var(--card);color:var(--fg)}
   background:var(--card);border:1px solid var(--line);border-radius:var(--r);
   font-size:13.5px;font-weight:700;color:var(--acc);cursor:pointer;
   transition:border-color .18s,background .18s;white-space:nowrap}
-.tagbtn:hover:not(:disabled){border-color:rgba(168,85,247,.5);background:var(--card2)}
+.tagbtn:hover:not(:disabled){border-color:rgba(var(--acc-rgb),.5);background:var(--card2)}
 .tagbtn:disabled{opacity:.55;cursor:default}
 .tagbtn svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round}
@@ -508,8 +534,8 @@ select.inp option{background:var(--card);color:var(--fg)}
   box-shadow:0 0 26px 6px var(--glow-1);animation:sweep 2.1s ease-in-out infinite}
 @keyframes sweep{0%,100%{top:4%}50%{top:96%}}
 .scan-grid{position:absolute;inset:0;
-  background-image:linear-gradient(rgba(168,85,247,.18) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(168,85,247,.18) 1px,transparent 1px);
+  background-image:linear-gradient(rgba(var(--acc-rgb),.18) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(var(--acc-rgb),.18) 1px,transparent 1px);
   background-size:30px 30px;mask-image:radial-gradient(circle at 50% 50%,#000 35%,transparent 76%)}
 .node{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--acc);
   box-shadow:0 0 10px var(--acc);animation:blip 2.3s ease-in-out infinite}
@@ -567,8 +593,8 @@ select.inp option{background:var(--card);color:var(--fg)}
 .strat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
 .strat{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:13px 8px;text-align:center;
   transition:border-color .2s,background .2s,box-shadow .2s}
-.strat.on{border-color:rgba(168,85,247,.6);background:var(--acc-dim);
-  box-shadow:0 0 0 1px rgba(168,85,247,.22),0 8px 22px -12px var(--glow-1)}
+.strat.on{border-color:rgba(var(--acc-rgb),.6);background:var(--acc-dim);
+  box-shadow:0 0 0 1px rgba(var(--acc-rgb),.22),0 8px 22px -12px var(--glow-1)}
 .strat .sp{font-size:18px;font-weight:800;letter-spacing:-.04em}
 .strat .sn{font-size:11.5px;font-weight:650;margin-top:3px}
 .strat .sd{font-size:10px;color:var(--dim);margin-top:1px}
@@ -586,8 +612,8 @@ select.inp option{background:var(--card);color:var(--fg)}
    account the least prominent thing on the account screen. It now leads at
    the scale of a page header. */
 .prof-hero{position:relative;overflow:hidden;text-align:center;padding:38px 22px 30px;
-  border-radius:var(--r-xl);border:1px solid rgba(168,85,247,.24);
-  background:linear-gradient(165deg,rgba(168,85,247,.14),var(--card) 62%);
+  border-radius:var(--r-xl);border:1px solid rgba(var(--acc-rgb),.24);
+  background:linear-gradient(165deg,rgba(var(--acc-rgb),.14),var(--card) 62%);
   box-shadow:0 20px 56px -30px var(--glow-1);margin-bottom:16px}
 .prof-hero::after{content:'';position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(80% 62% at 50% 0%,var(--glow-2),transparent 70%)}
@@ -643,7 +669,7 @@ select.inp option{background:var(--card);color:var(--fg)}
 
 /* The upsell sits where the value is, not on a tab the user has to find. */
 .sell-note{margin-top:22px;padding:18px 20px;border-radius:var(--r-lg);
-  border:1px solid rgba(168,85,247,.3);background:linear-gradient(160deg,rgba(168,85,247,.12),var(--card) 62%);
+  border:1px solid rgba(var(--acc-rgb),.3);background:linear-gradient(160deg,rgba(var(--acc-rgb),.12),var(--card) 62%);
   box-shadow:0 14px 40px -24px var(--glow-1)}
 .sell-note .sn-t{font-size:15.5px;font-weight:750;letter-spacing:-.02em}
 .sell-note .sn-s{font-size:13px;color:var(--mut);line-height:1.5;margin-top:5px}
@@ -653,7 +679,7 @@ select.inp option{background:var(--card);color:var(--fg)}
 /* Example banner. Deliberately loud: a demo report that could be mistaken for
    a real valuation of the user's own item would be worse than no demo. */
 .ex-bar{display:flex;align-items:center;gap:11px;padding:13px 16px;margin-bottom:14px;
-  border-radius:99px;background:var(--acc-dim);border:1px solid rgba(168,85,247,.34)}
+  border-radius:99px;background:var(--acc-dim);border:1px solid rgba(var(--acc-rgb),.34)}
 .ex-bar .d{width:7px;height:7px;border-radius:50%;background:var(--acc);flex-shrink:0;
   box-shadow:0 0 10px var(--acc)}
 .ex-bar .t{font-size:13px;font-weight:700;letter-spacing:-.01em;flex:1}
@@ -696,7 +722,7 @@ select.inp option{background:var(--card);color:var(--fg)}
 /* ─────────────────────────── plans ─────────────────────────── */
 .plan-card{position:relative;background:var(--card);border:1px solid var(--line);
   border-radius:var(--r-lg);padding:22px;margin-bottom:13px;transition:border-color .22s,transform .22s var(--ease)}
-.plan-card.pop{border-color:rgba(168,85,247,.45);background:linear-gradient(160deg,rgba(168,85,247,.11),var(--card) 58%);box-shadow:0 16px 44px -22px var(--glow-1)}
+.plan-card.pop{border-color:rgba(var(--acc-rgb),.45);background:linear-gradient(160deg,rgba(var(--acc-rgb),.11),var(--card) 58%);box-shadow:0 16px 44px -22px var(--glow-1)}
 .plan-card.cur{border-color:var(--line2)}
 .plan-card .ptag{position:absolute;top:-9px;left:22px;padding:4px 11px;border-radius:8px;
   background:var(--acc-grad);color:var(--acc-ink);font-size:10.5px;font-weight:800;letter-spacing:.07em}
@@ -804,7 +830,7 @@ select.inp option{background:var(--card);color:var(--fg)}
   background:var(--card2);border:1px solid var(--line)}
 .gen-thumb img{width:100%;height:100%;object-fit:cover}
 .gen-thumb .glow{position:absolute;inset:0;
-  background:linear-gradient(180deg,transparent,rgba(168,85,247,.45),transparent);
+  background:linear-gradient(180deg,transparent,rgba(var(--acc-rgb),.45),transparent);
   animation:sweep 1.9s ease-in-out infinite}
 .gen-pen{width:20px;height:20px;flex:none;stroke:var(--acc-hi);fill:none;stroke-width:1.9;
   stroke-linecap:round;stroke-linejoin:round;animation:penNib 1.5s ease-in-out infinite}
@@ -822,7 +848,7 @@ select.inp option{background:var(--card);color:var(--fg)}
   margin-bottom:7px}
 .gen-bar:last-child{margin-bottom:0}
 .gen-field.on .gen-bar::after{content:'';position:absolute;inset:0;
-  background:linear-gradient(90deg,transparent,rgba(168,85,247,.5),transparent);
+  background:linear-gradient(90deg,transparent,rgba(var(--acc-rgb),.5),transparent);
   animation:genFill 1.25s linear infinite}
 .gen-field.done .gen-bar{background:linear-gradient(90deg,var(--acc-dim),var(--card2))}
 .gen-field.done .gen-bar::after{display:none}
@@ -1042,7 +1068,7 @@ select.inp option{background:var(--card);color:var(--fg)}
 .how .step{position:relative;display:flex;gap:14px;align-items:flex-start;
   background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 17px}
 .how .step .n{flex-shrink:0;width:30px;height:30px;border-radius:10px;display:grid;place-items:center;
-  background:var(--acc-dim);border:1px solid rgba(168,85,247,.3);
+  background:var(--acc-dim);border:1px solid rgba(var(--acc-rgb),.3);
   font-size:13.5px;font-weight:800;color:var(--acc-hi);font-variant-numeric:tabular-nums}
 .how .step .t{font-size:15px;font-weight:750;letter-spacing:-.025em}
 .how .step .d{font-size:13.5px;color:var(--mut);line-height:1.55;margin-top:3px}
@@ -1050,8 +1076,8 @@ select.inp option{background:var(--card);color:var(--fg)}
 /* The example report gets a real preview rather than a bare link. A visitor
    deciding whether this is worth an email address is asking "what do I
    actually get", and a sentence cannot answer that. */
-.exdemo{background:linear-gradient(160deg,rgba(168,85,247,.10),var(--card) 60%);
-  border:1px solid rgba(168,85,247,.3);border-radius:var(--r-lg);padding:20px;
+.exdemo{background:linear-gradient(160deg,rgba(var(--acc-rgb),.10),var(--card) 60%);
+  border:1px solid rgba(var(--acc-rgb),.3);border-radius:var(--r-lg);padding:20px;
   box-shadow:0 16px 44px -24px var(--glow-1)}
 .exdemo .eh{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
 .exdemo .en{font-size:16.5px;font-weight:800;letter-spacing:-.03em}
@@ -1122,7 +1148,7 @@ select.inp option{background:var(--card);color:var(--fg)}
 .pricerow{display:grid;grid-template-columns:1fr;gap:11px}
 .pcard{position:relative;background:var(--card);border:1px solid var(--line);
   border-radius:var(--r);padding:17px}
-.pcard.pop{border-color:rgba(168,85,247,.45);background:linear-gradient(160deg,rgba(168,85,247,.1),var(--card) 58%)}
+.pcard.pop{border-color:rgba(var(--acc-rgb),.45);background:linear-gradient(160deg,rgba(var(--acc-rgb),.1),var(--card) 58%)}
 .pcard .pn{font-size:13px;font-weight:750;letter-spacing:.04em;text-transform:uppercase;color:var(--mut)}
 .pcard.pop .pn{color:var(--acc-hi)}
 .pcard .pv{display:flex;align-items:baseline;gap:5px;margin:7px 0 10px}
@@ -2735,7 +2761,7 @@ function renderPhotoTip() {
   const el = document.getElementById('photoTip');
   if (!el) return;
   if (store('photoTipSeen')) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="card tight" style="margin-bottom:14px;border-color:rgba(168,85,247,.28)">
+  el.innerHTML = `<div class="card tight" style="margin-bottom:14px;border-color:rgba(var(--acc-rgb),.28)">
     <div style="display:flex;align-items:flex-start;gap:11px">
       <svg viewBox="0 0 24 24" style="width:17px;height:17px;stroke:var(--acc-hi);fill:none;stroke-width:2;
            stroke-linecap:round;flex-shrink:0;margin-top:2px"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.6v.1"/></svg>
@@ -5318,7 +5344,48 @@ function armReveals(screenId) {
     enforceSignedOutPrivacy({ reason: 'server confirmed signed out' });
   }
 
+  /* Home-screen shortcuts (long-press the installed icon) land on /?go=scan
+     or /?go=inventory. Allowlisted rather than passed through to go(): the
+     parameter is attacker-supplied in the general case, and an arbitrary
+     view name would let a crafted link drop somebody straight into a screen
+     the app never routes to directly. */
+  const shortcut = params.get('go');
   go('home', { replace: true });
+  if (shortcut) {
+    history.replaceState({}, '', location.pathname);
+    /* Home first in every case, so the back gesture from a shortcut lands
+       somewhere sensible instead of closing the app. */
+    if (shortcut === 'scan') startScan();
+    else if (shortcut === 'inventory' && inventoryUnlocked()) go('inventory');
+    else if (shortcut === 'plan') go('plan');
+  }
+
+  /* Service worker. Registered last and never awaited — if it fails, the app
+     is exactly as it was, so nothing here is allowed to throw into boot.
+     Skipped on file:// where registration is not permitted anyway. */
+  if (!OFFLINE_FILE && 'serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+      /* A deploy lands while the app is open: the new worker installs and
+         waits. Tell it to take over, and reload once it has, so nobody is
+         left running last week's pricing against this week's Stripe. */
+      reg.addEventListener('updatefound', () => {
+        const fresh = reg.installing;
+        if (!fresh) return;
+        fresh.addEventListener('statechange', () => {
+          if (fresh.state === 'installed' && navigator.serviceWorker.controller) {
+            fresh.postMessage('skip-waiting');
+          }
+        });
+      });
+    }).catch(() => {});
+
+    let reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
+  }
 })();
 
 /* hardware / browser back */

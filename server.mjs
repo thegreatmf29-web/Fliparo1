@@ -430,14 +430,25 @@ function gate(req, res, next) {
 
   if (b.count >= PER_DEVICE) {
     const mins = Math.ceil((b.reset - now) / 60000);
+    /* Carefully not phrased as a quota. This is an abuse brake that counts
+       requests per hour; the plan allowance is a separate counter in
+       accounts.mjs. The old wording here — "You've used all N scans for now"
+       — is indistinguishable from running out of plan scans, so a paying
+       customer who scanned quickly read it as their subscription being
+       exhausted and had every reason to conclude they had been billed for
+       nothing. Say what it is: a speed limit, their plan is untouched. */
     return res.status(429).json({
-      error: `You've used all ${PER_DEVICE} scans for now. Resets in ${mins} min.`,
+      error: `You're scanning faster than Fliparo allows — ${PER_DEVICE} in an hour. `
+           + `This is a speed limit, not your plan: none of these came out of your monthly items. `
+           + `Try again in ${mins} min.`,
       code: 'RATE_LIMIT', resetInMinutes: mins
     });
   }
 
   b.count++; buckets.set(id, b); dayCount++;
-  res.set('x-scans-remaining', String(PER_DEVICE - b.count));
+  /* Requests left in the burst window — NOT scans left on the plan. The two
+     were conflated once already; the name says which one this is. */
+  res.set('x-burst-remaining', String(PER_DEVICE - b.count));
   next();
 }
 
@@ -674,7 +685,6 @@ Scoring rules — be honest and use the full range. Do not cluster everything at
       };
     }
     data._model = model;
-    data._scansRemaining = Number(res.get('x-scans-remaining') || 0);
 
     /* Only now, with a real result in hand, does the scan count against the
        plan. A Claude timeout or a malformed response must never cost somebody
